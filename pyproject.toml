@@ -1,0 +1,19 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # long lines — handled by formatter where it matters
+]
+
+[tool.ruff.lint.per-file-ignores]
+"data/*.py" = ["E402"]   # sys.path.insert before imports (needed for direct-script invocation)
+"bridge/*.py" = ["E402"]
