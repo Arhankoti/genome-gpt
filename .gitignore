@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+.venv/
+venv/
+env/
+.Python
+
+# Data (generated — not source)
+data/genomes.fasta
+data/synth.fasta
+data/*.bin
+data/*.pkl
+
+# Checkpoints
+checkpoints/*.pt
+!checkpoints/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Ruff / mypy
+.ruff_cache/
+.mypy_cache/
+
+# Jupyter notebook output (keep source, drop cell output)
+.ipynb_checkpoints/
