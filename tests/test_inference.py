@@ -1,4 +1,5 @@
 """Tests for inference.py — all run on an untrained tiny CPU checkpoint."""
+
 import pytest
 
 from config import STOI
@@ -12,6 +13,7 @@ def gm(tiny_ckpt):
 
 # --- score ---
 
+
 def test_score_keys(gm):
     result = gm.score("ACGTACGT")
     assert {"mean_logprob", "perplexity", "bits_per_bp", "n_scored"} <= result.keys()
@@ -24,6 +26,7 @@ def test_score_bits_positive(gm):
 
 def test_score_perplexity_consistent(gm):
     import math
+
     result = gm.score("ACGT" * 4)
     expected_ppl = math.exp(-result["mean_logprob"])
     assert abs(expected_ppl - result["perplexity"]) < 1e-4
@@ -42,6 +45,7 @@ def test_score_single_base(gm):
 
 
 # --- generate ---
+
 
 def test_generate_length(gm):
     seq = gm.generate(prompt="A", n_bases=20, seed=0)
@@ -65,6 +69,7 @@ def test_generate_prompt_preserved(gm):
 
 
 # --- variant_effect ---
+
 
 def test_variant_effect_keys(gm):
     ref = "ACGT" * 8
@@ -91,6 +96,7 @@ def test_variant_effect_interpretation_strings(gm):
 
 
 # --- embed ---
+
 
 def test_embed_shape(gm, tiny_cfg):
     emb = gm.embed("ACGTACGT")

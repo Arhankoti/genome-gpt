@@ -2,8 +2,9 @@
 
 Everything reads from here. Override at the CLI in train.py for smoke runs.
 """
-from dataclasses import dataclass, asdict
-import os
+
+from dataclasses import asdict, dataclass
+
 import torch
 
 
@@ -18,13 +19,13 @@ def pick_device() -> str:
 @dataclass
 class Config:
     # --- data ---
-    accession: str = "NC_000913.3"          # E. coli K-12 MG1655 (RefSeq)
+    accession: str = "NC_000913.3"  # E. coli K-12 MG1655 (RefSeq)
     fasta_path: str = "data/genomes.fasta"  # multi-record FASTA (one per genome)
     train_bin: str = "data/train.bin"
     val_bin: str = "data/val.bin"
     meta_path: str = "data/meta.pkl"
-    val_tail_frac: float = 0.10             # contiguous tail -> held-out genome(s)
-    rc_prob: float = 0.5                     # reverse-complement augmentation prob
+    val_tail_frac: float = 0.10  # contiguous tail -> held-out genome(s)
+    rc_prob: float = 0.5  # reverse-complement augmentation prob
 
     # --- model (~12M params at defaults) ---
     block_size: int = 1024
@@ -32,7 +33,7 @@ class Config:
     n_head: int = 8
     n_embd: int = 384
     dropout: float = 0.1
-    bias: bool = False                      # LayerNorm/Linear bias
+    bias: bool = False  # LayerNorm/Linear bias
 
     # --- training ---
     batch_size: int = 64

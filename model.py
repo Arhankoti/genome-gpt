@@ -4,7 +4,9 @@ Vocabulary is 6 tokens (A,C,G,T,N,|). Single-nucleotide resolution falls out
 for free, so there is no tokenizer. Uses F.scaled_dot_product_attention for a
 fast, correct causal attention (Flash on CUDA).
 """
+
 import math
+
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -41,7 +43,9 @@ class CausalSelfAttention(nn.Module):
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
         y = F.scaled_dot_product_attention(
-            q, k, v,
+            q,
+            k,
+            v,
             dropout_p=self.attn_dropout_p if self.training else 0.0,
             is_causal=True,
         )
@@ -78,13 +82,15 @@ class GenomeGPT(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-        self.transformer = nn.ModuleDict(dict(
-            wte=nn.Embedding(VOCAB_SIZE, cfg.n_embd),
-            wpe=nn.Embedding(cfg.block_size, cfg.n_embd),
-            drop=nn.Dropout(cfg.dropout),
-            h=nn.ModuleList([Block(cfg) for _ in range(cfg.n_layer)]),
-            ln_f=LayerNorm(cfg.n_embd, cfg.bias),
-        ))
+        self.transformer = nn.ModuleDict(
+            dict(
+                wte=nn.Embedding(VOCAB_SIZE, cfg.n_embd),
+                wpe=nn.Embedding(cfg.block_size, cfg.n_embd),
+                drop=nn.Dropout(cfg.dropout),
+                h=nn.ModuleList([Block(cfg) for _ in range(cfg.n_layer)]),
+                ln_f=LayerNorm(cfg.n_embd, cfg.bias),
+            )
+        )
         self.lm_head = nn.Linear(cfg.n_embd, VOCAB_SIZE, bias=False)
         self.transformer.wte.weight = self.lm_head.weight  # weight tying
 
@@ -126,7 +132,7 @@ class GenomeGPT(nn.Module):
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=0.8, top_k=None):
         for _ in range(max_new_tokens):
-            idx_cond = idx[:, -self.cfg.block_size:]
+            idx_cond = idx[:, -self.cfg.block_size :]
             logits, _ = self(idx_cond)
             logits = logits[:, -1, :] / max(temperature, 1e-6)
             if top_k is not None:

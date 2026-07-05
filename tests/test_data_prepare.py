@@ -1,4 +1,5 @@
 """Tests for data/prepare.py — FASTA parsing and encoding logic."""
+
 import textwrap
 
 import numpy as np

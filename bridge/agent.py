@@ -7,15 +7,16 @@ model never reasons over raw bases, the genome model never sees prose.
 
 Defaults to Anthropic. Pass --openai to use OpenAI.
 """
+
+import argparse
+import json
 import os
 import sys
-import json
-import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import Config
 from bridge.schemas import ANTHROPIC_TOOLS, OPENAI_FUNCTIONS
 from bridge.tools import dispatch
+from config import Config
 
 SYSTEM = (
     "You are a genomics assistant. You cannot reason over raw DNA bases yourself; "
@@ -29,12 +30,16 @@ SYSTEM = (
 
 def run_anthropic(user_msg, model_name):
     import anthropic
+
     client = anthropic.Anthropic()
     messages = [{"role": "user", "content": user_msg}]
     while True:
         resp = client.messages.create(
-            model=model_name, max_tokens=1024, system=SYSTEM,
-            tools=ANTHROPIC_TOOLS, messages=messages,
+            model=model_name,
+            max_tokens=1024,
+            system=SYSTEM,
+            tools=ANTHROPIC_TOOLS,
+            messages=messages,
         )
         if resp.stop_reason != "tool_use":
             return "".join(b.text for b in resp.content if b.type == "text")
@@ -44,21 +49,26 @@ def run_anthropic(user_msg, model_name):
             if block.type == "tool_use":
                 out = dispatch(block.name, block.input)
                 print(f"  [tool] {block.name}({block.input}) -> {out}")
-                results.append({
-                    "type": "tool_result", "tool_use_id": block.id,
-                    "content": json.dumps(out),
-                })
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": json.dumps(out),
+                    }
+                )
         messages.append({"role": "user", "content": results})
 
 
 def run_openai(user_msg, model_name):
     from openai import OpenAI
+
     client = OpenAI()
-    messages = [{"role": "system", "content": SYSTEM},
-                {"role": "user", "content": user_msg}]
+    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user_msg}]
     while True:
         resp = client.chat.completions.create(
-            model=model_name, messages=messages, tools=OPENAI_FUNCTIONS,
+            model=model_name,
+            messages=messages,
+            tools=OPENAI_FUNCTIONS,
         )
         msg = resp.choices[0].message
         if not msg.tool_calls:
@@ -68,8 +78,7 @@ def run_openai(user_msg, model_name):
             args = json.loads(tc.function.arguments)
             out = dispatch(tc.function.name, args)
             print(f"  [tool] {tc.function.name}({args}) -> {out}")
-            messages.append({"role": "tool", "tool_call_id": tc.id,
-                             "content": json.dumps(out)})
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(out)})
 
 
 def main():

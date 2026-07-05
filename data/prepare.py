@@ -10,14 +10,16 @@ Two correctness points:
     python data/prepare.py                       # uses cfg.fasta_path
     python data/prepare.py --fasta path.fasta    # override
 """
-import os
-import sys
-import pickle
+
 import argparse
+import os
+import pickle
+import sys
+
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import Config, STOI, ITOS, SEP_ID
+from config import ITOS, SEP_ID, STOI, Config
 
 
 def read_records(path):
@@ -52,7 +54,7 @@ def main():
     for i, r in enumerate(recs):
         parts.append(encode(r))
         if i < len(recs) - 1:
-            parts.append(sep)              # boundary between genomes
+            parts.append(sep)  # boundary between genomes
     data = np.concatenate(parts) if parts else np.array([], dtype=np.uint8)
 
     n = len(data)
@@ -67,8 +69,10 @@ def main():
 
     acgt = np.isin(data, [STOI["A"], STOI["C"], STOI["G"], STOI["T"]])
     gc = float(np.isin(data, [STOI["G"], STOI["C"]]).sum() / max(1, acgt.sum()))
-    print(f"records: {len(recs)} | total {n:,} tokens "
-          f"({int(acgt.sum()):,} bp + {len(recs)-1} boundaries)")
+    print(
+        f"records: {len(recs)} | total {n:,} tokens "
+        f"({int(acgt.sum()):,} bp + {len(recs) - 1} boundaries)"
+    )
     print(f"train {len(train):,} | val {len(val):,} (contiguous tail = held-out genomes)")
     print(f"GC content: {gc:.4f}")
     print(f"wrote {cfg.train_bin}, {cfg.val_bin}, {cfg.meta_path}")

@@ -5,14 +5,16 @@
                     --batch_size 16 --eval_interval 100 --device cpu \
                     --train_bin data/smoke_train.bin --val_bin data/smoke_val.bin
 """
-import os
-import math
-import time
+
 import argparse
+import math
+import os
+import time
+
 import numpy as np
 import torch
 
-from config import Config, ITOS, LN2, COMPLEMENT
+from config import COMPLEMENT, ITOS, LN2, Config
 from model import GenomeGPT
 
 
@@ -24,9 +26,9 @@ def set_seed(seed):
 def get_batch(bin_path, block_size, batch_size, device, rc_prob=0.0):
     data = np.memmap(bin_path, dtype=np.uint8, mode="r")
     ix = torch.randint(len(data) - block_size - 1, (batch_size,))
-    chunks = torch.stack([
-        torch.from_numpy(data[i:i + block_size + 1].astype(np.int64)) for i in ix
-    ])
+    chunks = torch.stack(
+        [torch.from_numpy(data[i : i + block_size + 1].astype(np.int64)) for i in ix]
+    )
     if rc_prob > 0:
         comp = torch.tensor(COMPLEMENT, dtype=torch.long)
         mask = torch.rand(batch_size) < rc_prob
@@ -36,7 +38,10 @@ def get_batch(bin_path, block_size, batch_size, device, rc_prob=0.0):
             chunks[mask] = comp[torch.flip(chunks[mask], dims=[1])]
     x, y = chunks[:, :-1].contiguous(), chunks[:, 1:].contiguous()
     if device == "cuda":
-        x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
+        x, y = (
+            x.pin_memory().to(device, non_blocking=True),
+            y.pin_memory().to(device, non_blocking=True),
+        )
     else:
         x, y = x.to(device), y.to(device)
     return x, y
@@ -92,10 +97,12 @@ def main():
     torch.set_float32_matmul_precision("high")
 
     model = GenomeGPT(cfg).to(cfg.device)
-    print(f"device={cfg.device}  non-embedding params={model.num_params()/1e6:.2f}M")
+    print(f"device={cfg.device}  non-embedding params={model.num_params() / 1e6:.2f}M")
 
     optim = torch.optim.AdamW(
-        model.parameters(), lr=cfg.lr, betas=(cfg.beta1, cfg.beta2),
+        model.parameters(),
+        lr=cfg.lr,
+        betas=(cfg.beta1, cfg.beta2),
         weight_decay=cfg.weight_decay,
     )
 
@@ -108,13 +115,22 @@ def main():
         if it % cfg.eval_interval == 0:
             losses = estimate_loss(model, cfg)
             tb, vb = losses["train"] / LN2, losses["val"] / LN2
-            print(f"iter {it:>6} | train {tb:.4f} bits/bp | val {vb:.4f} bits/bp "
-                  f"| {time.time()-t0:.0f}s")
+            print(
+                f"iter {it:>6} | train {tb:.4f} bits/bp | val {vb:.4f} bits/bp "
+                f"| {time.time() - t0:.0f}s"
+            )
             if losses["val"] < best_val:
                 best_val = losses["val"]
                 os.makedirs(os.path.dirname(cfg.ckpt_path) or ".", exist_ok=True)
-                torch.save({"model": model.state_dict(), "config": cfg.to_dict(),
-                            "val_bits_per_bp": vb, "iter": it}, cfg.ckpt_path)
+                torch.save(
+                    {
+                        "model": model.state_dict(),
+                        "config": cfg.to_dict(),
+                        "val_bits_per_bp": vb,
+                        "iter": it,
+                    },
+                    cfg.ckpt_path,
+                )
 
         if it > 0 and it % cfg.sample_interval == 0:
             print("  sample:", sample(model, cfg))
@@ -124,14 +140,15 @@ def main():
 
         optim.zero_grad(set_to_none=True)
         for _ in range(cfg.grad_accum):
-            x, y = get_batch(cfg.train_bin, cfg.block_size, cfg.batch_size, cfg.device,
-                             rc_prob=cfg.rc_prob)
+            x, y = get_batch(
+                cfg.train_bin, cfg.block_size, cfg.batch_size, cfg.device, rc_prob=cfg.rc_prob
+            )
             _, loss = model(x, y)
             (loss / cfg.grad_accum).backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
         optim.step()
 
-    print(f"done. best val = {best_val/LN2:.4f} bits/bp  (random baseline = 2.0)")
+    print(f"done. best val = {best_val / LN2:.4f} bits/bp  (random baseline = 2.0)")
 
 
 if __name__ == "__main__":

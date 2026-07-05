@@ -1,4 +1,5 @@
 """Tests for evaluate.py — Markov baseline and statistical helpers."""
+
 import numpy as np
 
 from config import STOI
@@ -15,6 +16,7 @@ def _rand_dna(n, seed=0):
 
 
 # --- markov_bits ---
+
 
 def test_markov_bits_k0_near_two():
     train = _ids(_rand_dna(5000, seed=0))
@@ -40,6 +42,7 @@ def test_markov_bits_laplace_smoothing_no_crash():
 
 # --- kmer_freqs ---
 
+
 def test_kmer_freqs_sums_to_one():
     freqs = kmer_freqs("ACGTACGT", k=2)
     assert abs(sum(freqs.values()) - 1.0) < 1e-9
@@ -58,6 +61,7 @@ def test_kmer_freqs_k3():
 
 
 # --- kl ---
+
 
 def test_kl_self_is_zero():
     freqs = kmer_freqs("ACGTACGTACGT", k=2)

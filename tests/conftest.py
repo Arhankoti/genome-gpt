@@ -3,6 +3,7 @@
 All tests run on CPU with a tiny model (1 layer, 16 embd, 32 block_size) so
 no GPU is required and the suite stays fast.
 """
+
 import pytest
 import torch
 

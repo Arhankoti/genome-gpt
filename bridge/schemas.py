@@ -8,8 +8,8 @@ ANTHROPIC_TOOLS = [
     {
         "name": "dna_score",
         "description": "Score how natural/plausible a DNA sequence is under the genome model. "
-                       "Returns mean log-probability per base, perplexity, and bits per "
-                       "nucleotide (lower bits = more natural; ~2.0 = random).",
+        "Returns mean log-probability per base, perplexity, and bits per "
+        "nucleotide (lower bits = more natural; ~2.0 = random).",
         "input_schema": {
             "type": "object",
             "properties": {"sequence": {"type": "string", "description": "DNA string (ACGTN)"}},
@@ -32,7 +32,7 @@ ANTHROPIC_TOOLS = [
     {
         "name": "dna_variant_effect",
         "description": "Estimate the effect of a single-base substitution via log-likelihood "
-                       "ratio. Negative LLR means the variant is more disruptive.",
+        "ratio. Negative LLR means the variant is more disruptive.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -46,7 +46,7 @@ ANTHROPIC_TOOLS = [
     {
         "name": "dna_embed",
         "description": "Return a fixed-length embedding vector for a DNA sequence "
-                       "(for similarity/clustering).",
+        "(for similarity/clustering).",
         "input_schema": {
             "type": "object",
             "properties": {"sequence": {"type": "string", "description": "DNA string (ACGTN)"}},
@@ -57,10 +57,16 @@ ANTHROPIC_TOOLS = [
 
 # --- OpenAI (Chat Completions `tools`) ---
 OPENAI_FUNCTIONS = [
-    {"type": "function", "function": {k: v for k, v in {
-        "name": t["name"],
-        "description": t["description"],
-        "parameters": t["input_schema"],
-    }.items()}}
+    {
+        "type": "function",
+        "function": {
+            k: v
+            for k, v in {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["input_schema"],
+            }.items()
+        },
+    }
     for t in ANTHROPIC_TOOLS
 ]

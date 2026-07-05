@@ -4,13 +4,12 @@ This is the source of truth the frontier model calls. All functions are
 deterministic except generate() (sampling). Long inputs are scored with a
 sliding window so callers never silently truncate.
 """
-import os
-import pickle
+
 import numpy as np
 import torch
 from torch.nn import functional as F
 
-from config import Config, STOI, ITOS, LN2
+from config import ITOS, LN2, STOI, Config
 from model import GenomeGPT
 
 
@@ -70,13 +69,13 @@ class GenomeModel:
             stride = B // 2
             chunks = []
             for start in range(0, len(ids) - 1, stride):
-                window = ids[start:start + B]
+                window = ids[start : start + B]
                 if len(window) < 2:
                     break
                 lp = self._token_logprobs(window)
                 # keep only the second half of each window (better left-context),
                 # except the first window where we keep everything
-                keep = lp if start == 0 else lp[stride - 1:]
+                keep = lp if start == 0 else lp[stride - 1 :]
                 chunks.append(keep)
             lps = torch.cat(chunks)
         mean_lp = lps.mean().item()

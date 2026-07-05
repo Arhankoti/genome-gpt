@@ -1,9 +1,10 @@
 """Tests for data/make_synthetic.py — synthetic genome generation."""
+
 import os
 
-from data.make_synthetic import main, make_genome
-
 import numpy as np
+
+from data.make_synthetic import main, make_genome
 
 
 def test_make_genome_length():
@@ -31,5 +32,5 @@ def test_main_record_count(tmp_path):
     out = str(tmp_path / "synth.fasta")
     main(n_genomes=3, per=100, seed=0, out=out)
     with open(out) as f:
-        headers = [l for l in f if l.startswith(">")]
+        headers = [line for line in f if line.startswith(">")]
     assert len(headers) == 3
