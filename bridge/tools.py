@@ -33,6 +33,11 @@ def dispatch(name: str, args: dict) -> dict:
         }
     if name == "dna_variant_effect":
         return m.variant_effect(args["ref_seq"], int(args["pos"]), args["alt_base"])
+    if name == "dna_saturation_scan":
+        r = m.saturation_scan(args["sequence"], top_k=int(args.get("top_k", 20)))
+        # Return only the ranked hits + summary; omit the full grid to keep the
+        # payload to the frontier model bounded.
+        return {k: r[k] for k in ("most_disruptive", "n_scored", "note")}
     if name == "dna_embed":
         v = m.embed(args["sequence"])
         return {"dim": len(v), "embedding": v}

@@ -8,9 +8,15 @@ from unittest.mock import MagicMock, patch
 def test_anthropic_tools_structure():
     from bridge.schemas import ANTHROPIC_TOOLS
 
-    assert len(ANTHROPIC_TOOLS) == 4
+    assert len(ANTHROPIC_TOOLS) == 5
     names = {t["name"] for t in ANTHROPIC_TOOLS}
-    assert names == {"dna_score", "dna_generate", "dna_variant_effect", "dna_embed"}
+    assert names == {
+        "dna_score",
+        "dna_generate",
+        "dna_variant_effect",
+        "dna_saturation_scan",
+        "dna_embed",
+    }
 
 
 def test_anthropic_tools_have_input_schema():

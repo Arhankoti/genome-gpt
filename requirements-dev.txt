@@ -2,3 +2,4 @@
 pytest>=7.4.0
 ruff>=0.4.0
 jupyter>=1.0.0
+matplotlib>=3.7.0  # viz.py landscape heatmaps only; not a runtime dependency
