@@ -41,3 +41,8 @@ htmlcov/
 
 # Jupyter notebook output (keep source, drop cell output)
 .ipynb_checkpoints/
+
+temp/
+plans/
+blog/
+

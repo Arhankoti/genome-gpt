@@ -29,7 +29,9 @@ data/
   prepare.py         multi-record FASTA -> bins, boundary tokens, held-out tail
 train.py             training loop, cosine LR, RC augmentation, bits/bp eval
 evaluate.py          Markov-baseline comparison + GC / k-mer checks
-inference.py         score / generate / variant_effect / embed
+inference.py         score / generate / variant_effect / saturation_scan / embed
+viz.py               render a saturation scan as a heatmap PNG (optional matplotlib)
+landscape.py         CLI: scan a seq/FASTA window -> ranked table + landscape PNG
 bridge/
   schemas.py         Anthropic tools + OpenAI functions
   tools.py           dispatch tool calls to the genome model
@@ -82,6 +84,23 @@ table is the reference: if the Transformer only ties a 5-mer chain, that is the
 finding. Watch for high-order k-grams *overfitting* (bits going up on held-out
 genomes) — that gap is exactly what a good neural model should close.
 
+## Saturation mutagenesis
+
+Score *every* single-base substitution across a window in **one forward pass** and
+rank the positions where the alternate base is most surprising:
+
+```bash
+python landscape.py --fasta data/synth.fasta --record 0 --start 0 --end 250 \
+    --ckpt checkpoints/synth.pt --out landscape.png   # ranked table + heatmap
+```
+
+This is a **fast single-site surprise** measure: `logP(alt | left context) −
+logP(ref | left context)`, read straight off the logits. It is *not* the same as
+`variant_effect` — it uses left context only and ignores how a swap perturbs
+*downstream* bases. Use it for a whole-gene overview, then zoom in on the top hits
+with the precise, centered `variant_effect`. Exposed to the frontier model as the
+`dna_saturation_scan` tool.
+
 ## What was verified here
 
 Ran the full offline pipeline on a 6-genome synthetic corpus (CPU): boundary
@@ -125,7 +144,8 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to add a new tool or extend the
 
 ## Upgrade backlog
 
-1. Saturation mutagenesis (scan every position × 3 alts into a ranked landscape).
+1. ~~Saturation mutagenesis (scan every position × 3 alts into a ranked landscape).~~
+   ✅ Done — `saturation_scan` / `landscape.py` / `dna_saturation_scan`.
 2. Classical tools beside neural ones (ORF finder, GC scan, restriction sites)
    behind the same schema.
 3. Embedding similarity search (cosine-NN index over `embed()`).

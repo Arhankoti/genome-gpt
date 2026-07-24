@@ -44,6 +44,26 @@ ANTHROPIC_TOOLS = [
         },
     },
     {
+        "name": "dna_saturation_scan",
+        "description": "Scan every single-base substitution across a DNA window and "
+        "return the most surprising positions (ranked by single-site log-likelihood "
+        "ratio, most negative = the alt base is most unexpected there). This is a "
+        "fast single-site surprise measure using left context only; it does not "
+        "capture a mutation's downstream effect. Confirm individual hits with "
+        "dna_variant_effect for a full whole-window disruption estimate.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sequence": {"type": "string", "description": "DNA window (ACGTN)"},
+                "top_k": {
+                    "type": "integer",
+                    "description": "How many top hits to return (default 20)",
+                },
+            },
+            "required": ["sequence"],
+        },
+    },
+    {
         "name": "dna_embed",
         "description": "Return a fixed-length embedding vector for a DNA sequence "
         "(for similarity/clustering).",

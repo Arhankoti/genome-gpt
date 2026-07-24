@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 
-from config import ITOS, LN2, STOI, Config
+from config import ITOS, LN2, STOI, VOCAB_SIZE, Config
 from model import GenomeGPT
 
 
@@ -21,8 +21,8 @@ def _encode(seq, device):
 class GenomeModel:
     """DNA-native model loaded from a trained checkpoint.
 
-    The four public methods (score, generate, variant_effect, embed) are the
-    contract exposed to frontier models via bridge/schemas.py. All are
+    The public methods (score, generate, variant_effect, saturation_scan, embed)
+    are the contract exposed to frontier models via bridge/schemas.py. All are
     torch.no_grad()-wrapped and safe to call from multiple threads as long as
     the caller does not mutate the model.
 
@@ -134,6 +134,106 @@ class GenomeModel:
             "alt_base": alt_base.upper(),
             "position": pos,
             "interpretation": "more disruptive" if alt_ll < ref_ll else "tolerated/neutral",
+        }
+
+    @torch.no_grad()
+    def saturation_scan(self, seq, start=0, end=None, top_k=20):
+        """Single-site LLR for every single-base substitution over seq[start:end].
+
+        One forward pass gives logP(base | left context) at each position, so the
+        LLR of each alternate base is logP(alt) - logP(ref) read directly off the
+        logits. This measures how surprising the alt base is *at its own site*
+        given left context only; it does NOT model the substitution's downstream
+        effect on later positions. For a whole-window disruption estimate (both
+        flanks + downstream ripple), confirm individual hits with variant_effect().
+
+        Args:
+            seq: DNA string (ACGTN). Left context of every scored position is the
+                real sequence preceding it, so pass the full window you care about.
+            start: First absolute position to score (0-based). Clamped to >= 1
+                because position 0 has no left context.
+            end: One past the last absolute position to score. Defaults to len(seq).
+            top_k: How many most-disruptive (most-negative LLR) hits to return.
+
+        Returns:
+            dict with keys: grid, ref_bases, positions, worst_per_pos,
+            most_disruptive, n_scored, note. `grid` is per scored position a list
+            of [llr_A, llr_C, llr_G, llr_T]; the reference column is exactly 0.0.
+            Positions with no left context (index 0, first token of each sliding
+            window) are skipped, never NaN-filled. All values are plain Python
+            floats/ints (JSON-serializable).
+        """
+        note = (
+            "single-site surprise (left context only, no downstream effect); "
+            "position 0 and window edges are skipped; confirm hits with variant_effect"
+        )
+        empty = {
+            "grid": [],
+            "ref_bases": "",
+            "positions": [],
+            "worst_per_pos": [],
+            "most_disruptive": [],
+            "n_scored": 0,
+            "note": note,
+        }
+        ids = _encode(seq, self.device)
+        T = len(ids)
+        if T < 2:
+            return empty
+        end = len(seq) if end is None else min(end, T)
+        start = max(0, start)
+        if start >= end:
+            return empty
+
+        # logp_rows[p] holds logP(base_p | left context); NaN row => unscored.
+        logp_rows = torch.full((T, VOCAB_SIZE), float("nan"), device=self.device)
+        B = self.cfg.block_size
+        stride = max(1, B // 2)
+        for wstart in range(0, T - 1, stride):
+            window = ids[wstart : wstart + B]
+            if len(window) < 2:
+                break
+            logits, _ = self.model(window.unsqueeze(0))
+            logp = F.log_softmax(logits[0], dim=-1)  # (L, vocab); logp[j] scores token j+1
+            # first window: keep all local targets 1..L-1; later windows keep the
+            # second half (local target >= stride) for better left context.
+            first_local = 1 if wstart == 0 else stride
+            for j in range(first_local - 1, len(window) - 1):
+                p = wstart + j + 1
+                if torch.isnan(logp_rows[p, 0]):
+                    logp_rows[p] = logp[j]
+            if wstart + B >= T:
+                break
+
+        real_ids = (0, 1, 2, 3)  # A, C, G, T
+        grid, ref_bases, positions, worst_per_pos, hits = [], [], [], [], []
+        for p in range(max(start, 1), end):
+            row = logp_rows[p]
+            if torch.isnan(row[0]):
+                continue
+            ref_id = int(ids[p].item())
+            ref_lp = row[ref_id]
+            llrs = [float((row[a] - ref_lp).item()) for a in real_ids]
+            grid.append(llrs)
+            ref_bases.append(ITOS[ref_id])
+            positions.append(p)
+            worst_per_pos.append(min(llrs))
+            for a in real_ids:
+                if a == ref_id:
+                    continue
+                hits.append(
+                    {"position": p, "ref_base": ITOS[ref_id], "alt_base": ITOS[a], "llr": llrs[a]}
+                )
+
+        hits.sort(key=lambda h: h["llr"])
+        return {
+            "grid": grid,
+            "ref_bases": "".join(ref_bases),
+            "positions": positions,
+            "worst_per_pos": worst_per_pos,
+            "most_disruptive": hits[:top_k],
+            "n_scored": len(positions),
+            "note": note,
         }
 
     @torch.no_grad()
