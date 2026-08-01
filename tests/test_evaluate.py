@@ -1,9 +1,13 @@
-"""Tests for evaluate.py — Markov baseline and statistical helpers."""
+"""Tests for evaluate.py — the Markov baseline.
+
+The k-mer / divergence helpers moved to generation.py in Part 4; their tests
+live in test_generation.py (kmer_spectrum / js_divergence).
+"""
 
 import numpy as np
 
 from config import STOI
-from evaluate import kl, kmer_freqs, markov_bits
+from evaluate import markov_bits
 
 
 def _ids(seq):
@@ -38,44 +42,3 @@ def test_markov_bits_laplace_smoothing_no_crash():
     val = _ids("TTTTTTTT" * 50)
     bits = markov_bits(train, val, k=4)
     assert bits > 0
-
-
-# --- kmer_freqs ---
-
-
-def test_kmer_freqs_sums_to_one():
-    freqs = kmer_freqs("ACGTACGT", k=2)
-    assert abs(sum(freqs.values()) - 1.0) < 1e-9
-
-
-def test_kmer_freqs_contains_expected():
-    freqs = kmer_freqs("AAAA", k=2)
-    assert "AA" in freqs
-    assert abs(freqs["AA"] - 1.0) < 1e-9
-
-
-def test_kmer_freqs_k3():
-    seq = "ACGTACGT"
-    freqs = kmer_freqs(seq, k=3)
-    assert all(len(k) == 3 for k in freqs)
-
-
-# --- kl ---
-
-
-def test_kl_self_is_zero():
-    freqs = kmer_freqs("ACGTACGTACGT", k=2)
-    assert kl(freqs, freqs) < 1e-9
-
-
-def test_kl_asymmetric():
-    # KL(p||q) != KL(q||p) for distributions with overlapping but skewed support
-    p = kmer_freqs("AAAAAAAAAA" + "ACGT", k=2)
-    q = kmer_freqs("ACGTACGTAC" + "AAAA", k=2)
-    assert kl(p, q) != kl(q, p)
-
-
-def test_kl_nonnegative():
-    p = kmer_freqs(_rand_dna(200, seed=3), k=3)
-    q = kmer_freqs(_rand_dna(200, seed=4), k=3)
-    assert kl(p, q) >= 0

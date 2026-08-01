@@ -30,16 +30,17 @@ python3.11 landscape.py --fasta data/synth.fasta --record 0 --start 0 --end 250 
     --ckpt checkpoints/synth.pt --out landscape.png       # saturation heatmap
 ```
 
-`matplotlib` is a **dev-only, optional** dependency (`viz.py` / `landscape.py` only). It's in `requirements-dev.txt`, not `requirements.txt`, and is imported behind a guard so the runtime path and tests never require it.
+`matplotlib` is a **dev-only, optional** dependency (`viz.py` / `landscape.py` / `dream.py` only). It's in `requirements-dev.txt`, not `requirements.txt`, and is imported behind a guard so the runtime path and tests never require it.
 
 ## Architecture (the big picture)
 
-Everything flows through a deliberate tool boundary. Read these four files together to understand the whole system:
+Everything flows through a deliberate tool boundary. Read these files together to understand the whole system:
 
 - **`config.py`** — single source of truth for all hyperparameters *and* the fixed **6-token vocabulary** `{A,C,G,T,N,|}` (`STOI`/`ITOS`/`VOCAB_SIZE`). The order is a hard contract — never reorder. `|` is a genome/contig boundary token; `COMPLEMENT` is the reverse-complement map in id-space. `Config` is a dataclass; a checkpoint stores its full config so architecture always matches the weights (old and new checkpoints are interchangeable without editing `config.py`).
 - **`model.py`** — nanoGPT-shaped decoder-only transformer. No tokenizer: single-nucleotide resolution falls out of the char vocab for free. `forward(idx, targets=None)` returns `(logits, loss)`.
 - **`inference.py` — the source of truth.** `GenomeModel` wraps a trained checkpoint and exposes the public methods that are the tool contract: `score`, `generate`, `variant_effect`, `saturation_scan`, `embed`. All are `@torch.no_grad()` and (except `generate`'s sampling) deterministic. Long inputs use a **sliding window** (stride `block_size//2`, keeping the second half of each window for better left-context) so callers never silently truncate.
-- **`bridge/`** — `schemas.py` declares tools **once** as `ANTHROPIC_TOOLS`; `OPENAI_FUNCTIONS` is auto-derived from it (don't hand-maintain a second list). `tools.py::dispatch(name, args)` maps a tool call to a `GenomeModel` method and returns a JSON-serializable dict. `agent.py` is the orchestration loop (Anthropic default, `--openai` alternate).
+- **`bridge/`** — `schemas.py` declares the **6 tools once** as `ANTHROPIC_TOOLS` (`dna_score`, `dna_generate`, `dna_variant_effect`, `dna_saturation_scan`, `dna_embed`, `dna_generation_report`); `OPENAI_FUNCTIONS` is auto-derived from it (don't hand-maintain a second list). `tools.py::dispatch(name, args)` maps a tool call to model computation and returns a JSON-serializable dict. `agent.py` is the orchestration loop (Anthropic default, `--openai` alternate).
+- **`generation.py`** — numpy-only, model-free statistics for judging generated DNA (`gc_content`, `kmer_spectrum`, `js_divergence`, `copy_stats`, `dream_report`). Anything needing the model is passed in as a closure, so this stays pure and importable by `evaluate.py`, tests, and the bridge without pulling torch/matplotlib.
 
 ### Data pipeline invariants
 
@@ -51,7 +52,7 @@ Everything flows through a deliberate tool boundary. Read these four files toget
 
 ## Conventions specific to this repo
 
-- **Adding a tool** means touching four places in lockstep: a method on `GenomeModel` (`inference.py`), a `dispatch` branch (`bridge/tools.py`), an entry in `ANTHROPIC_TOOLS` (`bridge/schemas.py`), and tests. Keep `bridge` return payloads **bounded** — e.g. `dna_saturation_scan` returns only the ranked hits + summary, never the full per-position grid, to cap tokens sent to the frontier model. Bumping the tool count also means updating the count assertion in `tests/test_bridge.py`.
+- **Adding a tool** means touching places in lockstep: the computation (usually a `GenomeModel` method in `inference.py`, but not always — `dna_generation_report` is *composed in the bridge* from `generate` + `score` + `generation.py` stats), a `dispatch` branch (`bridge/tools.py`), an entry in `ANTHROPIC_TOOLS` (`bridge/schemas.py`), and tests. Keep `bridge` return payloads **bounded** — `dna_saturation_scan` returns only ranked hits + summary (never the full grid); `dna_generation_report` returns scalars only (never the generated sequence) — to cap tokens sent to the frontier model. Bumping the tool count also means updating the count assertion in `tests/test_bridge.py` (currently **6**).
 - **`saturation_scan` vs `variant_effect` are different measurements — do not conflate them.** `saturation_scan` is a fast, single-pass **single-site surprise** (`logP(alt|left) − logP(ref|left)`, left context only, ref column exactly `0.0`, position 0 and window edges skipped). `variant_effect` re-scores a whole centered window and captures both flanks *plus* the downstream ripple. The distinction is stated in docstrings, the tool description, and the README; keep it that way.
 - **Tests run on an untrained tiny CPU checkpoint** (`tiny_ckpt` fixture in `tests/conftest.py`: 1 layer, 16 embd, 32 block_size). LLRs are noise on an untrained model, so assert only *internal* consistency (shapes, ref-column-zero, determinism, indexing against a hand-rolled forward pass) — **never** sign agreement between the neural tools. Guard any matplotlib test with `pytest.importorskip("matplotlib")`.
 - **Direct-script imports:** `data/*.py` and `bridge/*.py` do `sys.path.insert(...)` before importing top-level modules so they run as `python3.11 data/prepare.py`. `E402` is intentionally ignored for those paths in `pyproject.toml` — don't "fix" it.

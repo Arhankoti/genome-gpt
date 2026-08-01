@@ -41,4 +41,27 @@ def dispatch(name: str, args: dict) -> dict:
     if name == "dna_embed":
         v = m.embed(args["sequence"])
         return {"dim": len(v), "embedding": v}
+    if name == "dna_generation_report":
+        from generation import copy_stats, gc_content, js_divergence, kmer_spectrum
+
+        ref = args["reference"]
+        gen = m.generate(
+            prompt=args.get("prompt", "A"),
+            n_bases=int(args.get("n_bases", 1000)),
+            temperature=float(args.get("temperature", 0.9)),
+        )
+        cs = copy_stats(gen, ref)
+        # Bounded payload: scalars only — never dump the generated sequence to
+        # the frontier model. Fidelity (js) AND novelty (copied fraction) both
+        # matter; self_bits_per_bp is a weak sanity check only.
+        return {
+            "kmer_js_bits": js_divergence(kmer_spectrum(gen), kmer_spectrum(ref)),
+            "gc_generated": gc_content(gen),
+            "gc_reference": gc_content(ref),
+            "copied_kmer_fraction": cs["copied_kmer_fraction"],
+            "longest_exact_match": cs["longest_exact_match"],
+            "self_bits_per_bp": m.score(gen)["bits_per_bp"],
+            "note": "fidelity (js) and novelty (copied fraction) must both be good; "
+            "self_bits_per_bp is a weak sanity check only",
+        }
     return {"error": f"unknown tool {name}"}
