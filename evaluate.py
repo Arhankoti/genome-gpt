@@ -15,6 +15,7 @@ import argparse
 import numpy as np
 
 from config import ITOS, VOCAB_SIZE, Config
+from generation import gc_content, js_divergence, kmer_spectrum
 from inference import GenomeModel
 
 
@@ -42,19 +43,6 @@ def markov_bits(train_ids, val_ids, k, fit_cap=5_000_000):
     return float(-np.log2(p).mean())
 
 
-# ----------------------------- helpers -----------------------------
-def kmer_freqs(seq, k=6):
-    c = {}
-    for i in range(len(seq) - k + 1):
-        c[seq[i : i + k]] = c.get(seq[i : i + k], 0) + 1
-    t = sum(c.values())
-    return {km: v / t for km, v in c.items()}
-
-
-def kl(p, q, eps=1e-9):
-    return sum(p.get(x, eps) * np.log(p.get(x, eps) / q.get(x, eps)) for x in set(p) | set(q))
-
-
 def main():
     cfg = Config()
     ap = argparse.ArgumentParser()
@@ -78,18 +66,12 @@ def main():
         print(f"  {'markov k=' + str(k):<22}{b:>12.4f}")
     print(f"  {'neural GPT':<22}{neural:>12.4f}   <-- must beat the best k-gram")
 
-    # qualitative checks
+    # qualitative checks (fidelity of a single-temperature dream; see dream.py
+    # for the full fidelity-vs-novelty sweep)
     gen = gm.generate(prompt="A", n_bases=min(len(val_str), 4000), temperature=1.0, top_k=4, seed=0)
-
-    def gc(s):
-        return (s.count("G") + s.count("C")) / max(
-            1, s.count("G") + s.count("C") + s.count("A") + s.count("T")
-        )
-
-    print(f"\n  GC   real={gc(val_str):.4f}  generated={gc(gen):.4f}")
-    print(
-        f"  6-mer KL(real||gen) = {kl(kmer_freqs(val_str.replace('|', '')), kmer_freqs(gen)):.4f}"
-    )
+    js = js_divergence(kmer_spectrum(val_str, k=6), kmer_spectrum(gen, k=6))
+    print(f"\n  GC   real={gc_content(val_str):.4f}  generated={gc_content(gen):.4f}")
+    print(f"  6-mer JS(real||gen) = {js:.4f} bits  (0 = identical, 1 = maximally different)")
 
 
 if __name__ == "__main__":

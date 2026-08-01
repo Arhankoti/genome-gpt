@@ -30,8 +30,10 @@ data/
 train.py             training loop, cosine LR, RC augmentation, bits/bp eval
 evaluate.py          Markov-baseline comparison + GC / k-mer checks
 inference.py         score / generate / variant_effect / saturation_scan / embed
-viz.py               render a saturation scan as a heatmap PNG (optional matplotlib)
+generation.py        pure stats to judge dreams: kmer fidelity + copy/novelty (numpy)
+viz.py               render a saturation scan / generation sweep as a PNG (optional matplotlib)
 landscape.py         CLI: scan a seq/FASTA window -> ranked table + landscape PNG
+dream.py             CLI: sweep sampling temperature -> fidelity-vs-novelty table + PNG
 bridge/
   schemas.py         Anthropic tools + OpenAI functions
   tools.py           dispatch tool calls to the genome model
@@ -100,6 +102,28 @@ logP(ref | left context)`, read straight off the logits. It is *not* the same as
 *downstream* bases. Use it for a whole-gene overview, then zoom in on the top hits
 with the precise, centered `variant_effect`. Exposed to the frontier model as the
 `dna_saturation_scan` tool.
+
+## Generation evaluation
+
+The model can dream (`generate`), but is the dream any good? Judge it on **two**
+axes at once — because a model can ace any statistical match by *copying* training
+DNA verbatim, which is the Part-2 "memorized the eye chart" trap in a new costume:
+
+- **Fidelity** — do the generated k-mer statistics match real DNA? (Jensen-Shannon
+  divergence in bits; lower = more DNA-like.)
+- **Novelty** — is it *producing* sequence, not *plagiarizing*? (fraction of long
+  k-mers copied verbatim from the reference; longest exact copied run.)
+
+```bash
+python dream.py --ckpt checkpoints/synth.pt --temperatures 0.5,0.7,0.9,1.1
+```
+
+Temperature is the dial that trades these off (low → repetitive/copy-prone; high →
+novel but structureless), so the honest artifact is the **sweep** that shows the
+tension and where the sweet spot sits — not a single "quality" number. The model's
+own `score()` on its samples is reported but is a *weak* sanity check only (a model
+happily loves its own low-temperature loops). Exposed to the frontier model as the
+`dna_generation_report` tool.
 
 ## What was verified here
 

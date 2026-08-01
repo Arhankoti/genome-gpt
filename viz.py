@@ -1,9 +1,9 @@
-"""Render a saturation-mutagenesis scan as a heatmap PNG.
+"""Render analysis outputs (saturation scans, generation sweeps) as PNGs.
 
-Matplotlib is an optional, dev-only dependency: it is imported lazily inside the
+Matplotlib is an optional, dev-only dependency: it is imported lazily inside each
 function so importing this module (or the rest of the package) never requires it.
-The only input is the dict returned by GenomeModel.saturation_scan — this module
-has no coupling to the model itself.
+Inputs are plain dicts (from GenomeModel.saturation_scan / generation.dream_report)
+— this module has no coupling to the model itself.
 """
 
 # alt-base row order matches the grid columns produced by saturation_scan.
@@ -89,6 +89,83 @@ def render_landscape(scan, out_path="landscape.png", title=None):
 
     if title:
         ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def render_dream_sweep(report, out_path="dream_sweep.png", title=None):
+    """Plot the fidelity-vs-novelty tension across sampling temperature.
+
+    Two curves share the temperature x-axis:
+        * fidelity — kmer_js_bits (lower = more DNA-like), left y-axis.
+        * novelty  — copied_kmer_fraction (lower = less plagiarized), right y-axis.
+    The 'sweet spot' temperature (good fidelity AND low copying) is shaded and
+    annotated. Input is exactly the dict from generation.dream_report — no model
+    coupling.
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If the report has no sweep rows.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_dream_sweep needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    sweep = report.get("sweep", [])
+    if not sweep:
+        raise ValueError("report has no sweep rows to plot")
+
+    temps = [row["temperature"] for row in sweep]
+    fidelity = [row["kmer_js_bits"] for row in sweep]  # lower = better
+    novelty = [row["copied_kmer_fraction"] for row in sweep]  # lower = better
+
+    # Sweet spot: rank each temperature by fidelity + copying (both lower-better)
+    # on a 0-1 normalized scale and pick the minimum combined score.
+    def _norm(xs):
+        lo, hi = min(xs), max(xs)
+        rng = hi - lo
+        return [0.0 for _ in xs] if rng == 0 else [(x - lo) / rng for x in xs]
+
+    combined = [f + c for f, c in zip(_norm(fidelity), _norm(novelty))]
+    best_i = min(range(len(combined)), key=lambda i: combined[i])
+
+    fig, ax1 = plt.subplots(figsize=(7.0, 4.2))
+    color_f, color_n = "tab:blue", "tab:red"
+
+    ln1 = ax1.plot(temps, fidelity, "o-", color=color_f, label="fidelity: k-mer JS (bits)")
+    ax1.set_xlabel("sampling temperature")
+    ax1.set_ylabel("k-mer JS divergence (bits) — lower = more DNA-like", color=color_f)
+    ax1.tick_params(axis="y", labelcolor=color_f)
+
+    ax2 = ax1.twinx()
+    ln2 = ax2.plot(temps, novelty, "s--", color=color_n, label="novelty: copied-k-mer fraction")
+    ax2.set_ylabel("copied-k-mer fraction — lower = less plagiarized", color=color_n)
+    ax2.tick_params(axis="y", labelcolor=color_n)
+    ax2.set_ylim(-0.02, 1.02)
+
+    # shade + annotate the sweet spot
+    ax1.axvspan(temps[best_i] - 0.03, temps[best_i] + 0.03, color="green", alpha=0.12, zorder=0)
+    ax1.annotate(
+        f"sweet spot\nT={temps[best_i]:g}",
+        xy=(temps[best_i], fidelity[best_i]),
+        xytext=(6, 12),
+        textcoords="offset points",
+        fontsize=8,
+        color="green",
+    )
+
+    lns = ln1 + ln2
+    ax1.legend(lns, [line.get_label() for line in lns], loc="upper center", fontsize=8)
+    ax1.set_title(title or "Generation sweep: fidelity vs novelty across temperature")
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)

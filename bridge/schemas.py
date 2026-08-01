@@ -73,6 +73,33 @@ ANTHROPIC_TOOLS = [
             "required": ["sequence"],
         },
     },
+    {
+        "name": "dna_generation_report",
+        "description": "Generate DNA from a prompt and judge how DNA-like it is against "
+        "a reference window: k-mer fidelity (lower Jensen-Shannon = more natural) AND "
+        "novelty (copied-k-mer fraction; high = the model is regurgitating, not "
+        "generating). Both must be good — a low divergence with high copying means "
+        "memorization, not generation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reference": {
+                    "type": "string",
+                    "description": "Real DNA window to compare against (ACGTN)",
+                },
+                "prompt": {"type": "string", "description": "Seed DNA (ACGTN); default 'A'"},
+                "n_bases": {
+                    "type": "integer",
+                    "description": "How many bases to generate (default 1000)",
+                },
+                "temperature": {
+                    "type": "number",
+                    "description": "Sampling temperature (default 0.9)",
+                },
+            },
+            "required": ["reference"],
+        },
+    },
 ]
 
 # --- OpenAI (Chat Completions `tools`) ---
