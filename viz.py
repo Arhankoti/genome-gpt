@@ -170,3 +170,85 @@ def render_dream_sweep(report, out_path="dream_sweep.png", title=None):
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
+
+
+# Two-series categorical palette (neural vs Markov). Blue/orange is CVD-safe
+# (validated: adjacent ΔE ~25); direct value labels supply the contrast relief.
+_NEURAL_COLOR = "#1f77b4"
+_MARKOV_COLOR = "#ff7f0e"
+
+
+def render_benchmark(report, out_path="benchmark.png", title=None):
+    """Grouped bars per held-out genome: neural bits/bp vs best-Markov bits/bp.
+
+    Both series share ONE y-axis (both are bits/bp), the 2.0 'random' line is
+    marked, and genomes are sorted by gap so the win/loss story reads left to
+    right (neural-wins first). Input is exactly the dict from benchmark.benchmark.
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If the report has no per-genome rows to plot.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_benchmark needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    rows = sorted(report.get("per_genome", []), key=lambda r: r["gap_vs_best_markov"])
+    if not rows:
+        raise ValueError("report has no per_genome rows to plot")
+
+    names = [r["name"] for r in rows]
+    neural = [r["neural_bits_per_bp"] for r in rows]
+    markov = [r["best_markov_bits_per_bp"] for r in rows]
+    x = np.arange(len(names))
+    w = 0.4
+
+    fig_w = max(6.0, min(20.0, len(names) * 1.1))
+    fig, ax = plt.subplots(figsize=(fig_w, 4.2))
+    b1 = ax.bar(x - w / 2, neural, w, label="neural GPT", color=_NEURAL_COLOR)
+    b2 = ax.bar(
+        x + w / 2,
+        markov,
+        w,
+        label="best Markov k-gram",
+        color=_MARKOV_COLOR,
+    )
+
+    # 2.0 = random over 4 bases — the "learned nothing" line
+    ax.axhline(2.0, color="gray", linestyle=":", linewidth=1)
+    ax.annotate(
+        "random (2.0)",
+        xy=(0, 2.0),
+        xytext=(2, 3),
+        textcoords="offset points",
+        fontsize=7,
+        color="gray",
+    )
+
+    # direct value labels (also the contrast relief for the orange series)
+    ax.bar_label(b1, fmt="%.3f", fontsize=6, padding=2)
+    ax.bar_label(b2, fmt="%.3f", fontsize=6, padding=2)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(names, rotation=30, ha="right", fontsize=8)
+    ax.set_ylabel("bits per base — lower = more predictable")
+    # focus the y-range on where the bars actually live so small gaps are visible
+    lo = min(min(neural), min(markov))
+    hi = max(max(neural), max(markov), 2.0)
+    ax.set_ylim(max(0.0, lo - 0.05), hi + 0.08)
+    ax.legend(loc="upper right", fontsize=8)
+    ax.set_axisbelow(True)
+    ax.grid(axis="y", color="0.9", linewidth=0.6)
+    ax.set_title(title or "Neural vs Markov on held-out genomes (lower = better)")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path

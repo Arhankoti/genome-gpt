@@ -10,11 +10,11 @@ does not abort the whole download. Swap/extend GENOMES freely.
 """
 
 import argparse
+import hashlib
+import json
 import os
 import sys
 import time
-
-import requests
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import Config
@@ -48,12 +48,27 @@ GENOMES = [
 
 
 def fetch(accession):
+    import requests  # lazy: only the network path needs it, so helpers/tests don't
+
     params = {"db": "nuccore", "id": accession, "rettype": "fasta", "retmode": "text"}
     r = requests.get(EFETCH, params=params, timeout=60)
     r.raise_for_status()
     if not r.text.startswith(">"):
         raise ValueError("not FASTA")
     return r.text.strip()
+
+
+def seq_sha1(fasta):
+    """SHA1 of the uppercased sequence (headers stripped) — a stable content id
+    so a corpus is reproducible and verifiable regardless of line wrapping."""
+    seq = "".join(line.strip().upper() for line in fasta.splitlines() if not line.startswith(">"))
+    return hashlib.sha1(seq.encode()).hexdigest(), len(seq)
+
+
+def manifest_path(fasta_path):
+    """Sibling manifest path: data/genomes.fasta -> data/genomes.manifest.json."""
+    base, _ = os.path.splitext(fasta_path)
+    return base + ".manifest.json"
 
 
 def main():
@@ -64,20 +79,43 @@ def main():
     genomes = GENOMES[:1] if args.single else GENOMES
 
     os.makedirs(os.path.dirname(cfg.fasta_path), exist_ok=True)
-    ok, total_bp = 0, 0
+    ok, total_bp, records = 0, 0, []
     with open(cfg.fasta_path, "w") as out:
         for name, acc in genomes:
             try:
                 fasta = fetch(acc)
                 out.write(fasta + "\n")
-                bp = sum(len(line) for line in fasta.splitlines() if not line.startswith(">"))
+                sha1, bp = seq_sha1(fasta)
                 total_bp += bp
                 ok += 1
+                records.append(
+                    {"name": name, "accession": acc, "length_bp": bp, "sha1": sha1, "status": "ok"}
+                )
                 print(f"  ok  {name:24} {acc:14} {bp:>10,} bp")
                 time.sleep(0.4)  # be polite to NCBI
             except Exception as e:
+                records.append(
+                    {"name": name, "accession": acc, "status": "skipped", "error": str(e)}
+                )
                 print(f"  SKIP {name:24} {acc:14} ({e})")
+
+    # A run you can't reproduce is an anecdote: record exactly what landed in the
+    # corpus (and what was skipped) so it can be rebuilt and verified.
+    mpath = manifest_path(cfg.fasta_path)
+    with open(mpath, "w") as f:
+        json.dump(
+            {
+                "fasta": cfg.fasta_path,
+                "ok": ok,
+                "requested": len(genomes),
+                "total_bp": total_bp,
+                "records": records,
+            },
+            f,
+            indent=2,
+        )
     print(f"\n{ok}/{len(genomes)} genomes -> {cfg.fasta_path}  (~{total_bp:,} bp total)")
+    print(f"manifest -> {mpath}")
 
 
 if __name__ == "__main__":

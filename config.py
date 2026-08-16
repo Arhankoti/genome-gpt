@@ -24,7 +24,13 @@ class Config:
     train_bin: str = "data/train.bin"
     val_bin: str = "data/val.bin"
     meta_path: str = "data/meta.pkl"
-    val_tail_frac: float = 0.10  # contiguous tail -> held-out genome(s)
+    val_tail_frac: float = 0.10  # legacy: contiguous tail -> held-out genome(s)
+    # whole-genome held-out split (Part 5). If holdout_genomes is set, those named
+    # records go entirely to val; else holdout_k records are picked with holdout_seed.
+    # Set holdout_k = 0 to fall back to the legacy contiguous-tail split.
+    holdout_genomes: str = ""  # comma-separated record names to force into val
+    holdout_k: int = 2  # else hold out this many whole records at random
+    holdout_seed: int = 1337  # seed for the random holdout pick (reproducible)
     rc_prob: float = 0.5  # reverse-complement augmentation prob
 
     # --- model (~12M params at defaults) ---
