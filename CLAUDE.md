@@ -45,10 +45,10 @@ Everything flows through a deliberate tool boundary. Read these files together t
 ### Data pipeline invariants
 
 `data/prepare.py` encodes a multi-record FASTA into `train.bin`/`val.bin` (uint8) + `meta.pkl`. Two correctness points that the design depends on:
-1. Records are joined with the `|` **boundary token** so the model never learns transitions across genome boundaries.
-2. Validation is a **contiguous tail** of the concatenated stream — with a multi-genome corpus that tail is whole held-out genome(s), so val bits/bp measures *cross-genome generalization*, not recall.
+1. Records are joined with the `|` **boundary token** so the model never learns transitions across genome boundaries — and each split gets its own internal boundaries; the two splits never touch.
+2. Validation is **whole held-out genomes** (Part 5): `--holdout name1,name2` or a seeded `--holdout_k N` routes entire records into `val.bin`, so val bits/bp measures *cross-genome generalization*, not recall. `meta.pkl` records `train_genomes`/`val_genomes`. `--holdout_k 0` reproduces the legacy contiguous-tail split for Parts 2–4.
 
-`train.py` applies reverse-complement augmentation on the fly (`rc_prob`) and saves a checkpoint on best val loss. `evaluate.py` reports order-k Markov baselines next to the neural model — **the neural net must beat the best k-gram to justify itself.** The honest metric throughout is bits/nucleotide: **2.0 = random over 4 bases**, lower = more natural.
+`train.py` applies reverse-complement augmentation on the fly (`rc_prob`) and saves a checkpoint on best val loss. `evaluate.py` reports order-k Markov baselines next to the neural model, and `benchmark.py` extends this to a **per-held-out-genome** neural-vs-Markov report (reusing `evaluate.markov_bits` + `generation.py` stats — never forking them) — **the neural net must beat the best k-gram to justify itself.** The honest metric throughout is bits/nucleotide: **2.0 = random over 4 bases**, lower = more natural.
 
 ## Conventions specific to this repo
 

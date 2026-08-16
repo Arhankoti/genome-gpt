@@ -16,7 +16,7 @@ The "why," the smallest possible model, and — most importantly — learning ho
 2. 📝 **Teaching a Baby to Read** — a tiny GPT, bits-per-base, and the Markov baseline that humbled me. *(Delivers on Post 1's closing promise: the training story, and how it "gets humbling fast.")*
 3. 📝 **Which Letters Actually Matter** — saturation mutagenesis: scan every position, map the ones that break things. *(Part 3 — code landed (`saturation_scan` + `landscape.py` + `dna_saturation_scan`) and post drafted: [`blog-3-which-letters-actually-matter.md`](blog-3-which-letters-actually-matter.md).)*
 4. 📝 **The Model Dreams** — what happens when you let it generate DNA from scratch, and how to tell if the dream is plausible (fidelity *and* novelty). *(Part 4 — code landed (`generation.py` + `dream.py` + `dna_generation_report`) and post drafted: [`blog-4-the-model-dreams.md`](blog-4-the-model-dreams.md).)*
-5. 💭 **Real Bacteria, Real Grammar** — moving off toy data onto ~20 real genomes; where the neural net finally beats the counter (or doesn't).
+5. 📝 **Real Bacteria, Real Grammar** — moving off toy data onto real genomes; where the neural net finally beats the counter (it does — biggest on high-GC *M. tuberculosis*, where the counter scores worse than random). *(Part 5 — code landed: whole-genome holdout + `benchmark.py`; post drafted: [`blog-5-real-bacteria-real-grammar.md`](blog-5-real-bacteria-real-grammar.md).)*
 6. 💭 **How Big Is Big Enough?** — scaling the baby up and watching the honest number move.
 7. 💭 **The Data Is the Model** — cleaning, deduping, and why garbage genomes make a garbage reader.
 8. 💭 **Arc I Retrospective** — what a six-letter language taught me about learning itself.
@@ -82,4 +82,4 @@ Turning a bedroom project into something other people can use, poke at, and lear
 - Renumbering is allowed and expected. If Post 40's idea turns out to matter more than Post 12's, it moves up. The arc structure is the fixed part; the exact titles are not.
 - If an arc collapses (an idea doesn't pan out), that failure becomes its own post rather than getting quietly deleted.
 
-*Current status: Post 1 published; Post 2 drafted; Post 3 code landed (plan in [`plans/part-3-saturation-mutagenesis.md`](../plans/part-3-saturation-mutagenesis.md)) and post drafted; Post 4 code landed (plan in [`plans/part-4-the-model-dreams.md`](../plans/part-4-the-model-dreams.md)) and post drafted.*
+*Current status: Post 1 published; Post 2 drafted; Post 3 code landed (plan in [`plans/part-3-saturation-mutagenesis.md`](../plans/part-3-saturation-mutagenesis.md)) and post drafted; Post 4 code landed (plan in [`plans/part-4-the-model-dreams.md`](../plans/part-4-the-model-dreams.md)) and post drafted; Post 5 code landed (plan in [`plans/part-5-real-bacteria-real-grammar.md`](../plans/part-5-real-bacteria-real-grammar.md)) and post drafted — first real-data win.*

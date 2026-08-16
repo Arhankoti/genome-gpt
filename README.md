@@ -24,14 +24,15 @@ computation. The frontier model owns language; the JSON schema in
 config.py            hyperparameters + 6-token vocab (A,C,G,T,N + boundary |)
 model.py             char-level GPT (~12M params at defaults)
 data/
-  download.py        fetch ~20 diverse bacterial genomes (or --single = E. coli)
+  download.py        fetch ~20 diverse bacterial genomes (+ reproducible manifest)
   make_synthetic.py  offline multi-genome corpus (verify without NCBI)
-  prepare.py         multi-record FASTA -> bins, boundary tokens, held-out tail
+  prepare.py         multi-record FASTA -> bins, boundary tokens, whole-genome holdout
 train.py             training loop, cosine LR, RC augmentation, bits/bp eval
 evaluate.py          Markov-baseline comparison + GC / k-mer checks
+benchmark.py         real-data: neural vs Markov per held-out genome -> table + PNG
 inference.py         score / generate / variant_effect / saturation_scan / embed
 generation.py        pure stats to judge dreams: kmer fidelity + copy/novelty (numpy)
-viz.py               render a saturation scan / generation sweep as a PNG (optional matplotlib)
+viz.py               render scan / sweep / benchmark as a PNG (optional matplotlib)
 landscape.py         CLI: scan a seq/FASTA window -> ranked table + landscape PNG
 dream.py             CLI: sweep sampling temperature -> fidelity-vs-novelty table + PNG
 bridge/
@@ -124,6 +125,29 @@ tension and where the sweet spot sits — not a single "quality" number. The mod
 own `score()` on its samples is reported but is a *weak* sanity check only (a model
 happily loves its own low-temperature loops). Exposed to the frontier model as the
 `dna_generation_report` tool.
+
+## Real-data benchmark
+
+The honest question the synthetic corpus was built to make un-fakeable: on DNA that
+*actually shares grammar*, does the neural net beat the best Markov k-gram? Two
+rigor points make the answer trustworthy:
+
+- **Whole-genome holdout.** `prepare.py` routes entire named (or seeded-random)
+  genomes into val — not a contiguous tail that accidentally holds out "whatever
+  record landed last." `meta.pkl` records which genomes are train vs val.
+- **Per-genome reporting.** `benchmark.py` scores each held-out genome separately
+  against its own best Markov order, so one weird organism can't hide inside a
+  flattering average.
+
+```bash
+python data/prepare.py --holdout m_tuberculosis_h37rv,h_pylori_26695   # whole genomes
+python benchmark.py --ckpt checkpoints/real.pt --out benchmark.json --fig benchmark.png
+```
+
+A **negative** `gap_vs_best_markov` means the neural net wins. `download.py` writes
+a `genomes.manifest.json` (accession, length, sha1) so the corpus is reproducible.
+If the net *doesn't* beat counting, that is the finding — the harness measures it,
+it doesn't fake it.
 
 ## What was verified here
 

@@ -14,6 +14,7 @@ data/genomes.fasta
 data/synth.fasta
 data/*.bin
 data/*.pkl
+data/*.manifest.json
 
 # Checkpoints
 checkpoints/*.pt
