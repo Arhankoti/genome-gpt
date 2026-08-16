@@ -142,3 +142,16 @@ class GenomeGPT(nn.Module):
             nxt = torch.multinomial(probs, num_samples=1)
             idx = torch.cat((idx, nxt), dim=1)
         return idx
+
+
+def params_for_config(cfg):
+    """Non-embedding parameter count implied by a Config, matching num_params().
+
+    Builds the model on CPU (cheap — no forward pass) and counts, so the scaling
+    ladder can label points with the exact same convention num_params() uses.
+    """
+    import copy
+
+    c = copy.copy(cfg)
+    c.device = "cpu"
+    return GenomeGPT(c).num_params()

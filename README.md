@@ -30,9 +30,10 @@ data/
 train.py             training loop, cosine LR, RC augmentation, bits/bp eval
 evaluate.py          Markov-baseline comparison + GC / k-mer checks
 benchmark.py         real-data: neural vs Markov per held-out genome -> table + PNG
+scaling.py           size ladder (fixed data/split/budget) -> val + gap vs params
 inference.py         score / generate / variant_effect / saturation_scan / embed
 generation.py        pure stats to judge dreams: kmer fidelity + copy/novelty (numpy)
-viz.py               render scan / sweep / benchmark as a PNG (optional matplotlib)
+viz.py               render scan / sweep / benchmark / scaling as a PNG (optional matplotlib)
 landscape.py         CLI: scan a seq/FASTA window -> ranked table + landscape PNG
 dream.py             CLI: sweep sampling temperature -> fidelity-vs-novelty table + PNG
 bridge/
@@ -148,6 +149,26 @@ A **negative** `gap_vs_best_markov` means the neural net wins. `download.py` wri
 a `genomes.manifest.json` (accession, length, sha1) so the corpus is reproducible.
 If the net *doesn't* beat counting, that is the finding — the harness measures it,
 it doesn't fake it.
+
+## Scaling sweep
+
+Once the model can beat counting, the next honest question is: *does making it
+bigger help?* `scaling.py` trains a **ladder** of sizes and plots held-out bits/bp
+vs parameter count. The one rule that keeps the curve interpretable: **vary only
+capacity** — data, the Part 5 held-out split, and the training budget (tokens seen
+= `iters × batch × block_size`, fixed with `block_size` constant) are frozen across
+rungs.
+
+```bash
+python scaling.py --mode train --tokens 12e6            # train the ladder
+python scaling.py --mode collect --fig scaling.png      # read ckpts -> table + curve
+```
+
+It reports val bits/bp **and the train–val gap**: on a fixed, smallish corpus a
+bigger model eventually stops learning grammar and starts memorizing — val flattens
+while train keeps dropping, so the gap fans open. The figure marks that
+diminishing-returns region, because "big enough" is bounded by *data*, not just
+parameters.
 
 ## What was verified here
 
