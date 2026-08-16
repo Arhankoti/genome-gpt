@@ -252,3 +252,79 @@ def render_benchmark(report, out_path="benchmark.png", title=None):
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
+
+
+# val vs train share ONE bits/bp axis; the gap between them is the shaded band
+# (memorization signal), never a second y-scale.
+_VAL_COLOR = "#1f77b4"
+_TRAIN_COLOR = "#ff7f0e"
+
+
+def render_scaling(report, out_path="scaling.png", title=None):
+    """Val and train bits/bp vs parameter count (log x, shared bits/bp y-axis).
+
+    The shaded band between the curves is the train-val gap; where val stops
+    improving while the band fans open is the model going from learning to
+    memorizing. The 2.0 random line is marked. Input is exactly the dict from
+    scaling.run_ladder.
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If the report has fewer than one rung.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_scaling needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    rungs = report.get("rungs", [])
+    if not rungs:
+        raise ValueError("report has no rungs to plot")
+
+    params = [r["params"] for r in rungs]
+    val = [r["val_bits_per_bp"] for r in rungs]
+    train = [r["train_bits_per_bp"] for r in rungs]
+
+    fig, ax = plt.subplots(figsize=(7.0, 4.4))
+    ax.fill_between(params, train, val, color="gray", alpha=0.12, label="train–val gap")
+    ax.plot(params, val, "o-", color=_VAL_COLOR, label="held-out (val) bits/bp — the honest number")
+    ax.plot(params, train, "s--", color=_TRAIN_COLOR, label="train bits/bp")
+
+    ax.axhline(2.0, color="gray", linestyle=":", linewidth=1)
+    ax.annotate(
+        "random (2.0)",
+        xy=(params[0], 2.0),
+        xytext=(2, 3),
+        textcoords="offset points",
+        fontsize=7,
+        color="gray",
+    )
+
+    ax.set_xscale("log")
+    ax.set_xlabel("non-embedding parameters (log scale)")
+    ax.set_ylabel("bits per base — lower = better")
+    # direct-label each rung so identity isn't size-only
+    for r in rungs:
+        ax.annotate(
+            r["label"],
+            xy=(r["params"], r["val_bits_per_bp"]),
+            xytext=(0, -12),
+            textcoords="offset points",
+            ha="center",
+            fontsize=7,
+            color=_VAL_COLOR,
+        )
+    ax.legend(loc="upper right", fontsize=8)
+    ax.set_axisbelow(True)
+    ax.grid(color="0.92", linewidth=0.6)
+    ax.set_title(title or "How big is big enough? Held-out bits/bp vs model size")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
