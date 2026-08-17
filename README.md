@@ -26,14 +26,16 @@ model.py             char-level GPT (~12M params at defaults)
 data/
   download.py        fetch ~20 diverse bacterial genomes (+ reproducible manifest)
   make_synthetic.py  offline multi-genome corpus (verify without NCBI)
-  prepare.py         multi-record FASTA -> bins, boundary tokens, whole-genome holdout
+  prepare.py         FASTA -> bins, boundary tokens, whole-genome holdout, leakage guard
+  quality.py         pure data-quality stats: N%, low-complexity, MinHash dedup (numpy)
 train.py             training loop, cosine LR, RC augmentation, bits/bp eval
 evaluate.py          Markov-baseline comparison + GC / k-mer checks
 benchmark.py         real-data: neural vs Markov per held-out genome -> table + PNG
 scaling.py           size ladder (fixed data/split/budget) -> val + gap vs params
+dataqc.py            CLI: inspect a corpus -> cleanliness table + similarity heatmap
 inference.py         score / generate / variant_effect / saturation_scan / embed
 generation.py        pure stats to judge dreams: kmer fidelity + copy/novelty (numpy)
-viz.py               render scan / sweep / benchmark / scaling as a PNG (optional matplotlib)
+viz.py               render scan / sweep / benchmark / scaling / similarity PNGs (matplotlib)
 landscape.py         CLI: scan a seq/FASTA window -> ranked table + landscape PNG
 dream.py             CLI: sweep sampling temperature -> fidelity-vs-novelty table + PNG
 bridge/
@@ -169,6 +171,30 @@ bigger model eventually stops learning grammar and starts memorizing — val fla
 while train keeps dropping, so the gap fans open. The figure marks that
 diminishing-returns region, because "big enough" is bounded by *data*, not just
 parameters.
+
+## Data quality
+
+Since the model is data-bound, the corpus is a first-class concern. `data/quality.py`
+(numpy + stdlib only) measures what a genome file actually contains and — the real
+prize — how similar two genomes are:
+
+- **Cleaning** — `n_fraction`, `low_complexity_fraction`, `clean_record` (drop
+  short / too-N records, map non-ACGTN to N, trim terminal N runs).
+- **MinHash dedup** — each genome is compressed to a small canonical-k-mer
+  fingerprint (reverse-complement-invariant); Jaccard similarity estimates
+  near-duplication without aligning anything. Exact dups are caught by the
+  `download.py` sha1 manifest; MinHash catches *near*-duplicate strains.
+
+```bash
+python dataqc.py --fasta data/genomes.fasta --holdout h_pylori_26695 --fig qc_similarity.png
+python data/prepare.py --fasta data/genomes.fasta --holdout h_pylori_26695 --dedup
+```
+
+The **leakage guard** is the point: `prepare.py` refuses a whole-genome split when a
+held-out genome has a near-twin in training (Jaccard above threshold), because that
+would make the Part 5 generalization result secretly *partly memorization*. It's the
+`train ≠ test` rule enforced at the corpus level. `--allow_leakage` overrides it for
+experiments; every clean/dedup/leakage action is recorded in `meta.pkl`.
 
 ## What was verified here
 

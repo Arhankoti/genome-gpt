@@ -328,3 +328,64 @@ def render_scaling(report, out_path="scaling.png", title=None):
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
+
+
+def render_similarity(report, out_path="qc_similarity.png", title=None):
+    """Genome x genome MinHash-Jaccard heatmap.
+
+    Similarity is a magnitude with no meaningful midpoint, so it uses a SEQUENTIAL
+    single-hue colormap (light = distinct -> dark = identical), not a diverging
+    one. Cells at/above the dedup threshold are annotated — near-duplicate strains
+    show up as hot off-diagonal blocks. Input is the dict from quality.qc_report.
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If the report has no similarity matrix.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_similarity needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    sim = report.get("similarity", {})
+    names = sim.get("names", [])
+    matrix = sim.get("matrix", [])
+    if not names or not matrix:
+        raise ValueError("report has no similarity matrix to plot")
+
+    data = np.asarray(matrix, dtype=float)
+    threshold = report.get("dedup", {}).get("threshold", 0.9)
+
+    n = len(names)
+    fig_side = max(4.0, min(14.0, n * 0.7))
+    fig, ax = plt.subplots(figsize=(fig_side, fig_side * 0.85))
+    im = ax.imshow(data, cmap="Blues", vmin=0.0, vmax=1.0, interpolation="nearest")
+
+    ax.set_xticks(range(n))
+    ax.set_yticks(range(n))
+    ax.set_xticklabels(names, rotation=45, ha="right", fontsize=7)
+    ax.set_yticklabels(names, fontsize=7)
+
+    # annotate near-duplicate cells (off-diagonal, >= threshold) so identity isn't
+    # color-alone — the contrast relief the palette needs
+    for i in range(n):
+        for j in range(n):
+            if i != j and data[i, j] >= threshold:
+                ax.text(
+                    j, i, f"{data[i, j]:.2f}", ha="center", va="center", fontsize=7, color="white"
+                )
+
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("MinHash-Jaccard similarity (0 = distinct, 1 = identical)")
+    ax.set_title(title or "Genome similarity — near-duplicates are hot blocks")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path

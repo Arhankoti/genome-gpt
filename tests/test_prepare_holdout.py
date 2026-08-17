@@ -138,3 +138,55 @@ def test_splits_are_disjoint_lengths(fasta_file):
 
 def test_join_empty_is_empty():
     assert _join_with_boundaries([]).size == 0
+
+
+# --- leakage guard (Part 7): the decision logic prepare.py's guard relies on ---
+
+
+def _rand_dna(n, seed):
+    rng = np.random.default_rng(seed)
+    return "".join(rng.choice(list("ACGT"), n))
+
+
+def _mutate(seq, frac, seed):
+    rng = np.random.default_rng(seed)
+    m = list(seq)
+    for i in rng.choice(len(m), size=int(len(m) * frac), replace=False):
+        m[i] = rng.choice(list("ACGT"))
+    return "".join(m)
+
+
+def test_leakage_guard_detects_near_twin_in_train():
+    from data.quality import leakage_check
+
+    seq = _rand_dna(5000, 100)
+    named = [
+        ("clean_train", _rand_dna(5000, 101)),
+        ("held_out", seq),
+        ("held_out_neardup", _mutate(seq, 0.003, 102)),  # a near-twin sitting in train
+    ]
+    holdout = select_holdout([n for n, _ in named], holdout_genomes="held_out")
+    train_named = [(n, s) for n, s in named if n not in holdout]
+    val_named = [(n, s) for n, s in named if n in holdout]
+    leaks = [x for x in leakage_check(train_named, val_named) if x["leak"]]
+    assert leaks and leaks[0]["val"] == "held_out"  # guard would refuse this split
+
+
+def test_dedup_then_split_removes_the_leak():
+    from data.quality import dedup_records, leakage_check
+
+    seq = _rand_dna(5000, 103)
+    named = [
+        ("clean_train", _rand_dna(5000, 104)),
+        ("held_out", seq),
+        ("held_out_neardup", _mutate(seq, 0.003, 105)),
+    ]
+    # dedup drops the near-duplicate (longest-first keeps one representative)...
+    kept_names, dropped = dedup_records(named, threshold=0.9)
+    assert any(d["name"] == "held_out_neardup" for d in dropped)
+    deduped = [(n, s) for n, s in named if n in set(kept_names)]
+    # ...so holding out "held_out" no longer leaks
+    holdout = select_holdout([n for n, _ in deduped], holdout_genomes="held_out")
+    train_named = [(n, s) for n, s in deduped if n not in holdout]
+    val_named = [(n, s) for n, s in deduped if n in holdout]
+    assert not any(x["leak"] for x in leakage_check(train_named, val_named))
