@@ -25,6 +25,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import ITOS, SEP_ID, STOI, Config
+from data.quality import clean_action, clean_record, dedup_records, leakage_check
 
 
 def read_records(path):
@@ -110,11 +111,35 @@ def main():
         "--holdout_k", type=int, default=cfg.holdout_k, help="0 = legacy contiguous tail"
     )
     ap.add_argument("--holdout_seed", type=int, default=cfg.holdout_seed)
+    ap.add_argument("--clean", action="store_true", help="drop dirty records (short / too many N)")
+    ap.add_argument("--dedup", action="store_true", help="drop near-duplicate genomes (MinHash)")
+    ap.add_argument(
+        "--allow_leakage",
+        action="store_true",
+        help="do not refuse a split where a held-out genome has a near-twin in train",
+    )
     args = ap.parse_args()
 
     named = read_named_records(args.fasta)
-    names = [n for n, _ in named]
     os.makedirs(os.path.dirname(cfg.train_bin), exist_ok=True)
+
+    # --- data-quality passes (Part 7); default off, so Parts 2-6 reproduce ---
+    cleaned_dropped, deduped_dropped = [], []
+    if args.clean:
+        kept = []
+        for name, seq in named:
+            c = clean_record(seq)
+            if c is None:
+                cleaned_dropped.append({"name": name, "action": clean_action(seq)})
+            else:
+                kept.append((name, c))
+        named = kept
+    if args.dedup:
+        kept_names, deduped_dropped = dedup_records(named)
+        keep = set(kept_names)
+        named = [(n, s) for n, s in named if n in keep]
+
+    names = [n for n, _ in named]
 
     # legacy contiguous-tail split (reproduces Parts 2-4) when holdout_k == 0
     if args.holdout_k == 0 and not args.holdout:
@@ -122,14 +147,27 @@ def main():
         split = int(len(data) * (1.0 - cfg.val_tail_frac))
         train, val = data[:split], data[split:]
         train_genomes, val_genomes, mode = names, [], "legacy_contiguous_tail"
+        leakage = []
     else:
         holdout = select_holdout(names, args.holdout, args.holdout_k, args.holdout_seed)
-        train_seqs = [s for n, s in named if n not in holdout]
-        val_seqs = [s for n, s in named if n in holdout]
-        train = _join_with_boundaries(train_seqs)
-        val = _join_with_boundaries(val_seqs)
-        train_genomes = [n for n in names if n not in holdout]
-        val_genomes = [n for n in names if n in holdout]
+        train_named = [(n, s) for n, s in named if n not in holdout]
+        val_named = [(n, s) for n, s in named if n in holdout]
+        # Leakage guard: a held-out genome must NOT have a near-twin in training,
+        # or the Part 5 generalization claim is secretly partly memorization.
+        leakage = leakage_check(train_named, val_named)
+        leaks = [x for x in leakage if x["leak"]]
+        if leaks and not args.allow_leakage:
+            msg = "; ".join(
+                f"{x['val']} ~ {x['nearest_train']} (Jaccard {x['jaccard']:.2f})" for x in leaks
+            )
+            ap.error(
+                f"train/val leakage — held-out genome has a near-twin in train: {msg}. "
+                "Dedup the corpus, choose a different holdout, or pass --allow_leakage."
+            )
+        train = _join_with_boundaries([s for _, s in train_named])
+        val = _join_with_boundaries([s for _, s in val_named])
+        train_genomes = [n for n, _ in train_named]
+        val_genomes = [n for n, _ in val_named]
         mode = "whole_genome_holdout"
 
     train.tofile(cfg.train_bin)
@@ -143,6 +181,9 @@ def main():
                 "val_genomes": val_genomes,
                 "holdout_seed": args.holdout_seed,
                 "split_mode": mode,
+                "cleaned_dropped": cleaned_dropped,
+                "deduped_dropped": deduped_dropped,
+                "leakage": leakage,
             },
             f,
         )
@@ -150,8 +191,15 @@ def main():
     tr_bp, tr_gc = _split_stats(train)
     va_bp, va_gc = _split_stats(val)
     print(f"records: {len(named)} | split mode: {mode}")
+    if cleaned_dropped:
+        print(f"  cleaned: dropped {len(cleaned_dropped)} record(s): {cleaned_dropped}")
+    if deduped_dropped:
+        print(f"  deduped: dropped {len(deduped_dropped)} near-duplicate(s): {deduped_dropped}")
     print(f"  train: {len(train_genomes)} genomes, {tr_bp:,} bp, GC {tr_gc:.4f}")
     print(f"  val (held-out): {val_genomes or '[tail]'}, {va_bp:,} bp, GC {va_gc:.4f}")
+    if mode == "whole_genome_holdout":
+        worst = max((x["jaccard"] for x in leakage), default=0.0)
+        print(f"  leakage check: max held-out↔train Jaccard {worst:.3f} (guard passed)")
     print(f"wrote {cfg.train_bin}, {cfg.val_bin}, {cfg.meta_path}")
 
 
