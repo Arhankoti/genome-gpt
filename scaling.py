@@ -88,8 +88,11 @@ def run_ladder(
     iters = max(1, int(tokens // (batch * block)))
 
     if mode == "train":
+        # train on the SAME bins we score on, so a per-corpus override (Part 8)
+        # can't silently train the default corpus while scoring another.
+        train_base = {**base_overrides, "train_bin": train_bin, "val_bin": val_bin}
         for label, ov in ladder:
-            _train_rung(label, ov, base_overrides, iters, ckpt_dir, ckpt_prefix)
+            _train_rung(label, ov, train_base, iters, ckpt_dir, ckpt_prefix)
 
     train_ids = np.fromfile(train_bin, dtype=np.uint8)
     val_ids = np.fromfile(val_bin, dtype=np.uint8)
@@ -119,6 +122,50 @@ def run_ladder(
     }
 
 
+def align_runs(reports, labels):
+    """Align several ladder reports by rung label for a same-capacity comparison.
+
+    Part 6 varied capacity on ONE corpus; Part 8 asks the complementary question —
+    freeze the ladder and the budget, vary only the DATA — so the honest picture is
+    the two ladders' held-out curves side by side. This is the pure core of that
+    comparison (no matplotlib): only rungs present in *every* report are kept (a
+    rung is matched across reports by its label, which pins capacity), returned in
+    ascending parameter order.
+
+    Args:
+        reports: list of scaling.run_ladder dicts.
+        labels: one human label per report (e.g. corpus size); same length.
+
+    Returns:
+        {"labels": [...], "rungs": [{"label", "params", "val": [per-report],
+         "train": [per-report], "gap": [per-report]}]}, val/train/gap aligned to
+        the order of `labels`.
+
+    Raises:
+        ValueError: if labels count != reports count, or no rung is shared.
+    """
+    if len(reports) != len(labels):
+        raise ValueError(f"{len(reports)} reports but {len(labels)} labels")
+    per_report = [{r["label"]: r for r in rep.get("rungs", [])} for rep in reports]
+    common = set.intersection(*[set(d) for d in per_report]) if per_report else set()
+    if not common:
+        raise ValueError("no rung label is present in every report")
+    ordered = sorted(common, key=lambda lab: per_report[0][lab]["params"])
+    rungs = []
+    for lab in ordered:
+        cells = [d[lab] for d in per_report]
+        rungs.append(
+            {
+                "label": lab,
+                "params": int(cells[0]["params"]),
+                "val": [float(c["val_bits_per_bp"]) for c in cells],
+                "train": [float(c["train_bits_per_bp"]) for c in cells],
+                "gap": [float(c["gap"]) for c in cells],
+            }
+        )
+    return {"labels": list(labels), "rungs": rungs}
+
+
 def _print_report(report):
     print(
         f"\n  budget: {report['budget']['tokens_seen']:,} tokens-seen "
@@ -143,17 +190,53 @@ def main():
     ap.add_argument("--tokens", type=float, default=12e6, help="tokens-seen budget per rung")
     ap.add_argument("--block_size", type=int, default=256)
     ap.add_argument("--batch_size", type=int, default=32)
+    ap.add_argument("--device", default="cpu", help="train/eval device (cpu, mps, cuda)")
+    ap.add_argument("--ckpt_prefix", default="scale_", help="checkpoint name prefix per ladder")
+    ap.add_argument("--train_bin", default=None, help="override train.bin (per-corpus experiments)")
+    ap.add_argument("--val_bin", default=None, help="override val.bin")
     ap.add_argument("--max_eval_tokens", type=int, default=200_000)
     ap.add_argument("--out", default=None, help="write report JSON here")
     ap.add_argument("--fig", default=None, help="write scaling PNG here")
+    ap.add_argument(
+        "--compare",
+        default=None,
+        help="comma-separated report JSONs to overlay (Part 8: only DATA varies); "
+        "with --fig, writes the data-scaling comparison PNG instead of training",
+    )
+    ap.add_argument("--labels", default=None, help="comma-separated labels for --compare reports")
     args = ap.parse_args()
 
-    base = {"block_size": args.block_size, "batch_size": args.batch_size, "device": "cpu"}
+    # Comparison mode: read already-collected reports and overlay them. Varies only
+    # the corpus across runs (the ladder + budget were frozen when each was trained).
+    if args.compare:
+        import json
+
+        paths = [p for p in args.compare.split(",") if p]
+        reports = [json.load(open(p)) for p in paths]
+        labels = args.labels.split(",") if args.labels else [os.path.basename(p) for p in paths]
+        aligned = align_runs(reports, labels)
+        for row in aligned["rungs"]:
+            print(f"  {row['label']:<5} {row['params']:>10,}  val {row['val']}  gap {row['gap']}")
+        if args.fig:
+            from viz import render_scaling_compare
+
+            render_scaling_compare(reports, labels, out_path=args.fig)
+            print(f"  wrote {args.fig}")
+        return
+
+    base = {
+        "block_size": args.block_size,
+        "batch_size": args.batch_size,
+        "device": args.device,
+    }
     report = run_ladder(
         mode=args.mode,
         tokens=args.tokens,
         base_overrides=base,
+        ckpt_prefix=args.ckpt_prefix,
         max_eval_tokens=args.max_eval_tokens,
+        train_bin=args.train_bin,
+        val_bin=args.val_bin,
     )
     _print_report(report)
 

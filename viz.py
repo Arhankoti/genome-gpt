@@ -330,6 +330,90 @@ def render_scaling(report, out_path="scaling.png", title=None):
     return out_path
 
 
+# One CVD-safe hue per corpus (validated blue/orange pair, adjacent ΔE ~25). The
+# category here is the corpus, not val-vs-train, so color encodes which dataset.
+_CORPUS_COLORS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd")
+
+
+def render_scaling_compare(reports, labels, out_path="scaling_data.png", title=None):
+    """Overlay several ladders that differ ONLY in training data (Part 8).
+
+    Two panels, each a single bits/bp y-axis vs parameter count (log x):
+        * left  — held-out (val) bits/bp per corpus: does the whole honest curve
+          shift down when the corpus grows?
+        * right — the train-val gap per corpus: does more data shrink the
+          memorization gap at fixed capacity?
+    One hue per corpus. The 2.0 random line is marked on the left panel. Inputs are
+    exactly the dicts from scaling.run_ladder (aligned by scaling.align_runs).
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If fewer than one shared rung exists across reports.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_scaling_compare needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    from scaling import align_runs  # pure alignment core (shared with the CLI)
+
+    aligned = align_runs(reports, labels)
+    rungs = aligned["rungs"]
+    params = [r["params"] for r in rungs]
+
+    fig, (axv, axg) = plt.subplots(1, 2, figsize=(11.0, 4.4))
+    for k, lab in enumerate(aligned["labels"]):
+        color = _CORPUS_COLORS[k % len(_CORPUS_COLORS)]
+        val = [r["val"][k] for r in rungs]
+        gap = [r["gap"][k] for r in rungs]
+        axv.plot(params, val, "o-", color=color, label=lab)
+        axg.plot(params, gap, "o-", color=color, label=lab)
+
+    axv.axhline(2.0, color="gray", linestyle=":", linewidth=1)
+    axv.annotate(
+        "random (2.0)",
+        xy=(params[0], 2.0),
+        xytext=(2, 3),
+        textcoords="offset points",
+        fontsize=7,
+        color="gray",
+    )
+    axg.axhline(0.0, color="gray", linestyle=":", linewidth=1)
+
+    for ax in (axv, axg):
+        ax.set_xscale("log")
+        ax.set_xlabel("non-embedding parameters (log scale)")
+        ax.set_axisbelow(True)
+        ax.grid(color="0.92", linewidth=0.6)
+        ax.legend(loc="best", fontsize=8)
+        # direct-label each rung so identity isn't size-only
+        for r in rungs:
+            ax.annotate(
+                r["label"],
+                xy=(r["params"], r["val"][0] if ax is axv else r["gap"][0]),
+                xytext=(0, -12),
+                textcoords="offset points",
+                ha="center",
+                fontsize=7,
+                color="0.4",
+            )
+    axv.set_ylabel("held-out (val) bits/bp — the honest number, lower = better")
+    axg.set_ylabel("train–val gap (bits/bp) — higher = more memorization")
+    axv.set_title("Does more data move the honest number?")
+    axg.set_title("Does more data shrink the memorization gap?")
+    fig.suptitle(title or "Scaling the corpus, not the model (ladder + budget frozen)")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
 def render_similarity(report, out_path="qc_similarity.png", title=None):
     """Genome x genome MinHash-Jaccard heatmap.
 

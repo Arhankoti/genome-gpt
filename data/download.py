@@ -58,6 +58,18 @@ def fetch(accession):
     return r.text.strip()
 
 
+def relabel_header(fasta, name, accession):
+    """Rewrite the record's `>` header to `>{name} {accession}`.
+
+    NCBI returns `>NC_000913.3 Escherichia coli ...`, but the whole pipeline keys
+    a genome by its friendly `name` (the first header token — how prepare.py's
+    --holdout and the leakage guard refer to it) and expects that name to match
+    the manifest. Without this, name-based holdout silently can't find any record.
+    """
+    body = fasta.split("\n", 1)[1] if "\n" in fasta else ""
+    return f">{name} {accession}\n{body}".rstrip()
+
+
 def seq_sha1(fasta):
     """SHA1 of the uppercased sequence (headers stripped) — a stable content id
     so a corpus is reproducible and verifiable regardless of line wrapping."""
@@ -83,7 +95,7 @@ def main():
     with open(cfg.fasta_path, "w") as out:
         for name, acc in genomes:
             try:
-                fasta = fetch(acc)
+                fasta = relabel_header(fetch(acc), name, acc)
                 out.write(fasta + "\n")
                 sha1, bp = seq_sha1(fasta)
                 total_bp += bp
