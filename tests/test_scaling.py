@@ -173,3 +173,82 @@ def test_render_scaling_empty_raises():
 
     with pytest.raises(ValueError):
         render_scaling({"rungs": []})
+
+
+# --- align_runs: pure data-scaling comparison core (Part 8) ---
+
+
+def _fake_report(rungs):
+    """Build a run_ladder-shaped report from (label, params, train, val) tuples."""
+    return {
+        "rungs": [
+            {
+                "label": lab,
+                "params": p,
+                "train_bits_per_bp": tr,
+                "val_bits_per_bp": va,
+                "gap": va - tr,
+            }
+            for lab, p, tr, va in rungs
+        ]
+    }
+
+
+def test_align_runs_matches_by_label_and_sorts_by_params():
+    from scaling import align_runs
+
+    a = _fake_report([("s", 300, 1.90, 1.95), ("xs", 100, 1.92, 1.94)])
+    b = _fake_report([("xs", 100, 1.80, 1.90), ("s", 300, 1.70, 1.88)])
+    aligned = align_runs([a, b], ["6", "20"])
+    assert aligned["labels"] == ["6", "20"]
+    assert [r["label"] for r in aligned["rungs"]] == ["xs", "s"]  # ascending params
+    xs = aligned["rungs"][0]
+    assert xs["params"] == 100
+    assert xs["val"] == [1.94, 1.90]  # per-report, in label order
+    assert xs["gap"] == [pytest.approx(0.02), pytest.approx(0.10)]
+
+
+def test_align_runs_keeps_only_shared_rungs():
+    from scaling import align_runs
+
+    a = _fake_report([("xs", 100, 1.9, 1.95), ("s", 300, 1.8, 1.9)])
+    b = _fake_report([("xs", 100, 1.7, 1.85)])  # no "s" rung
+    aligned = align_runs([a, b], ["6", "20"])
+    assert [r["label"] for r in aligned["rungs"]] == ["xs"]
+
+
+def test_align_runs_label_count_mismatch_raises():
+    from scaling import align_runs
+
+    with pytest.raises(ValueError):
+        align_runs([_fake_report([("xs", 100, 1.9, 1.95)])], ["6", "20"])
+
+
+def test_align_runs_no_shared_rung_raises():
+    from scaling import align_runs
+
+    a = _fake_report([("xs", 100, 1.9, 1.95)])
+    b = _fake_report([("s", 300, 1.8, 1.9)])
+    with pytest.raises(ValueError):
+        align_runs([a, b], ["6", "20"])
+
+
+def test_render_scaling_compare_writes_png(tmp_path):
+    pytest.importorskip("matplotlib")
+    from viz import render_scaling_compare
+
+    a = _fake_report([("xs", 100, 1.92, 1.94), ("s", 300, 1.90, 1.95)])
+    b = _fake_report([("xs", 100, 1.80, 1.90), ("s", 300, 1.70, 1.88)])
+    out = tmp_path / "scaling_data.png"
+    render_scaling_compare([a, b], ["6 genomes", "20 genomes"], out_path=str(out))
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_render_scaling_compare_no_shared_rung_raises():
+    pytest.importorskip("matplotlib")
+    from viz import render_scaling_compare
+
+    a = _fake_report([("xs", 100, 1.9, 1.95)])
+    b = _fake_report([("s", 300, 1.8, 1.9)])
+    with pytest.raises(ValueError):
+        render_scaling_compare([a, b], ["6", "20"])

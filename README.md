@@ -172,6 +172,23 @@ while train keeps dropping, so the gap fans open. The figure marks that
 diminishing-returns region, because "big enough" is bounded by *data*, not just
 parameters.
 
+That conclusion — capacity is data-bound — has a falsifiable follow-up: if the
+model is starved, then holding the ladder and budget fixed and only **growing the
+corpus** should move the honest number. `scaling.py --compare` overlays two ladders
+that differ in *nothing but training data*, so the data effect is isolated the same
+way Part 6 isolated capacity:
+
+```bash
+# train each corpus's ladder at the SAME budget, into distinct checkpoints
+python scaling.py --mode train --device mps --ckpt_prefix scale6_  \
+    --train_bin data/train6.bin  --val_bin data/val6.bin  --out scaling6.json
+python scaling.py --mode train --device mps --ckpt_prefix scale20_ \
+    --train_bin data/train20.bin --val_bin data/val20.bin --out scaling20.json
+# overlay held-out curve + train-val gap (only DATA differs across the two)
+python scaling.py --compare scaling6.json,scaling20.json \
+    --labels "6 genomes,20 genomes" --fig scaling_data.png
+```
+
 ## Data quality
 
 Since the model is data-bound, the corpus is a first-class concern. `data/quality.py`
@@ -218,7 +235,7 @@ rather than aborting. Set `frontier_model` in `config.py` to a model you can rea
 ```bash
 pip install -r requirements-dev.txt   # adds pytest + ruff on top of runtime deps
 
-pytest tests/          # 60 tests, CPU-only, ~0.3 s — no checkpoint needed
+pytest tests/          # 168 tests, CPU-only, ~2 s — no checkpoint needed
 ruff check .           # lint
 ruff format .          # format
 ```

@@ -11,6 +11,7 @@ env/
 
 # Data (generated — not source)
 data/genomes.fasta
+data/genomes*.fasta
 data/synth.fasta
 data/*.bin
 data/*.pkl
