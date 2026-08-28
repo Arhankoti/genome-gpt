@@ -74,6 +74,23 @@ ANTHROPIC_TOOLS = [
         },
     },
     {
+        "name": "dna_score_report",
+        "description": "Score a DNA sequence and return a plain-English verdict on "
+        "whether it looks like real DNA, with the numbers behind it. Combines three "
+        "computed signals: distance below the ~2.0 random line, whether the model "
+        "scores the sequence below a composition-preserving shuffle of it "
+        "(grammar_gain; real sequential structure beyond base composition), and "
+        "complexity (a low score on a repetitive sequence is repetition, not "
+        "grammar). Verdict is one of dna_like / plausible_composition / random_like "
+        "/ low_complexity. Use this instead of dna_score when a human-readable "
+        "judgment is wanted.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"sequence": {"type": "string", "description": "DNA string (ACGTN)"}},
+            "required": ["sequence"],
+        },
+    },
+    {
         "name": "dna_generation_report",
         "description": "Generate DNA from a prompt and judge how DNA-like it is against "
         "a reference window: k-mer fidelity (lower Jensen-Shannon = more natural) AND "

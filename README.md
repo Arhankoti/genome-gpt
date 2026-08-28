@@ -38,6 +38,7 @@ generation.py        pure stats to judge dreams: kmer fidelity + copy/novelty (n
 viz.py               render scan / sweep / benchmark / scaling / similarity PNGs (matplotlib)
 landscape.py         CLI: scan a seq/FASTA window -> ranked table + landscape PNG
 dream.py             CLI: sweep sampling temperature -> fidelity-vs-novelty table + PNG
+score.py             CLI: score a seq -> plain-English verdict (vs random + a shuffle)
 bridge/
   schemas.py         Anthropic tools + OpenAI functions
   tools.py           dispatch tool calls to the genome model
@@ -89,6 +90,31 @@ Bits/token = cross-entropy / ln 2. Random over 4 bases = **2.0**. The Markov
 table is the reference: if the Transformer only ties a 5-mer chain, that is the
 finding. Watch for high-order k-grams *overfitting* (bits going up on held-out
 genomes) — that gap is exactly what a good neural model should close.
+
+## Scoring, out loud
+
+`dna_score` returns bits/bp — honest, but unreadable to anyone who isn't steeped in
+it. `dna_score_report` (CLI: `score.py`) turns it into a plain-English verdict —
+`dna_like` / `plausible_composition` / `random_like` / `low_complexity` — while
+guarding against the two ways a low number lies:
+
+- **Repetition.** A homopolymer scores ~0 bits but isn't grammar — a distinct-k-mer
+  **complexity** check catches it.
+- **Beating nothing.** Random DNA sits at ~2.0. The verdict reports the **margin
+  below random**, and — the honest core — `grammar_gain`: bits the model saves on the
+  real sequence versus a **composition-preserving shuffle** of it. Same base
+  composition, order destroyed, the model judging its own control. If the model
+  prefers the real order, it's reading *sequence*, not just which letters are present.
+
+```bash
+python score.py --ckpt checkpoints/real.pt --seq ATGACC...        # one verdict
+python score.py --ckpt checkpoints/real.pt --demo --out score_verdicts.png
+```
+
+The verdict is a gloss; the tool always returns every number behind it. On a held-out
+*M. tuberculosis* slice the model scores **1.93 bits** and its shuffle **2.01** — real
+DNA reads `dna_like`, the shuffle collapses to `random_like`. Exposed to the frontier
+model as `dna_score_report`; it speaks the verdict and never touches raw `ACGT`.
 
 ## Saturation mutagenesis
 
@@ -235,7 +261,7 @@ rather than aborting. Set `frontier_model` in `config.py` to a model you can rea
 ```bash
 pip install -r requirements-dev.txt   # adds pytest + ruff on top of runtime deps
 
-pytest tests/          # 168 tests, CPU-only, ~2 s — no checkpoint needed
+pytest tests/          # 185 tests, CPU-only, ~2 s — no checkpoint needed
 ruff check .           # lint
 ruff format .          # format
 ```

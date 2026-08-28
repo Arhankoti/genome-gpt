@@ -414,6 +414,91 @@ def render_scaling_compare(reports, labels, out_path="scaling_data.png", title=N
     return out_path
 
 
+# One color per verdict category (categorical, CVD-safe-ish; markers + text labels
+# carry the identity so it never rests on color alone).
+_VERDICT_COLORS = {
+    "dna_like": "#2ca02c",
+    "plausible_composition": "#1f77b4",
+    "random_like": "#7f7f7f",
+    "low_complexity": "#ff7f0e",
+}
+
+
+def render_score_report(reports, out_path="score_verdicts.png", title=None):
+    """A bits/bp 'thermometer': place scored sequences on ONE axis from natural to
+    random, colored by verdict.
+
+    x = neural bits/bp (lower = more natural), a single shared axis; the 2.0 random
+    line and a shaded 'natural band' (clearly below random) are marked. Each input is
+    a generation.score_verdict dict plus a "label"; points are drawn at their
+    neural_bits_per_bp, colored by verdict, and annotated with the value + verdict so
+    identity never rests on color alone.
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If there are no reports to plot.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_score_report needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    if not reports:
+        raise ValueError("no score reports to plot")
+
+    rows = list(reports)
+    ys = list(range(len(rows)))
+    fig, ax = plt.subplots(figsize=(8.0, max(2.2, 0.7 * len(rows) + 1.2)))
+
+    # natural band: clearly below random (the region a "dna_like" verdict lives in)
+    ax.axvspan(1.5, 2.0 - 0.05, color="#2ca02c", alpha=0.06, zorder=0)
+    ax.axvline(2.0, color="gray", linestyle=":", linewidth=1)
+    ax.annotate(
+        "random (2.0)",
+        xy=(2.0, ys[-1]),
+        xytext=(3, 6),
+        textcoords="offset points",
+        fontsize=7,
+        color="gray",
+    )
+
+    for y, r in zip(ys, rows):
+        x = r["neural_bits_per_bp"]
+        color = _VERDICT_COLORS.get(r["verdict"], "#333333")
+        ax.scatter([x], [y], s=90, color=color, zorder=3, edgecolors="white", linewidths=0.8)
+        ax.annotate(
+            f"{x:.3f} · {r['verdict']}",
+            xy=(x, y),
+            xytext=(8, 0),
+            textcoords="offset points",
+            va="center",
+            fontsize=8,
+            color=color,
+        )
+
+    ax.set_yticks(ys)
+    ax.set_yticklabels([r.get("label", f"seq {i}") for i, r in enumerate(rows)], fontsize=8)
+    ax.set_ylim(-0.6, len(rows) - 0.4)
+    ax.invert_yaxis()
+    # keep the interesting region in view but always include 2.0
+    xmin = min(r["neural_bits_per_bp"] for r in rows)
+    ax.set_xlim(min(1.75, xmin - 0.1), 2.06)
+    ax.set_xlabel("neural bits per base — lower = more natural (2.0 = random)")
+    ax.set_axisbelow(True)
+    ax.grid(axis="x", color="0.92", linewidth=0.6)
+    ax.set_title(title or "Scoring, out loud: where each sequence lands, and the verdict")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
 def render_similarity(report, out_path="qc_similarity.png", title=None):
     """Genome x genome MinHash-Jaccard heatmap.
 

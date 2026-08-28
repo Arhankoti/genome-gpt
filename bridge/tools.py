@@ -41,6 +41,17 @@ def dispatch(name: str, args: dict) -> dict:
     if name == "dna_embed":
         v = m.embed(args["sequence"])
         return {"dim": len(v), "embedding": v}
+    if name == "dna_score_report":
+        from generation import composition_shuffle, score_verdict
+
+        seq = args["sequence"]
+        neural_bits = m.score(seq)["bits_per_bp"]
+        # Score a composition-preserving shuffle as the null: bits saved on the real
+        # order = grammar beyond base composition (the model judges its own control).
+        shuffle_bits = m.score(composition_shuffle(seq))["bits_per_bp"]
+        # score_verdict returns only bounded scalars/strings — the plain-English
+        # verdict plus every number it was computed from (nothing hides behind a word).
+        return score_verdict(seq, neural_bits, shuffle_bits)
     if name == "dna_generation_report":
         from generation import copy_stats, gc_content, js_divergence, kmer_spectrum
 
