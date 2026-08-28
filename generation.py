@@ -122,6 +122,139 @@ _REPORT_NOTE = (
 )
 
 
+def composition_shuffle(seq: str, seed: int = 0) -> str:
+    """A random permutation of the sequence — identical base composition, zero order.
+
+    This is the honest null for "does the model read grammar, or just composition?":
+    scoring `seq` against its own shuffle controls for base/GC frequency exactly, so
+    any bits the model saves on the real sequence come from *sequential structure*,
+    not from the letters it happens to contain. (Mononucleotide shuffle; it does not
+    hold dinucleotide frequency fixed — a documented limitation, not a bug.)
+    """
+    arr = np.array(list(seq.upper()))
+    np.random.default_rng(seed).shuffle(arr)
+    return "".join(arr.tolist())
+
+
+def sequence_complexity(seq: str, k: int = 3) -> float:
+    """Distinct-k-mer richness in [0, 1] — a fast repetitiveness proxy.
+
+    len(distinct ACGT k-mers) / min(4**k, #positions). ≈1.0 when the sequence uses
+    the full k-mer alphabet (random-like); near 0 when a few repeats dominate (a
+    homopolymer or short tandem repeat). Model-free, so a low neural bits/bp can be
+    checked against it: low bits with low complexity is *repetition*, not grammar.
+    """
+    s = seq.upper()
+    kmers: set[str] = set()
+    positions = 0
+    for i in range(len(s) - k + 1):
+        km = s[i : i + k]
+        if _ACGT.issuperset(km):
+            kmers.add(km)
+            positions += 1
+    if positions == 0:
+        return 0.0
+    return len(kmers) / min(4**k, positions)
+
+
+# Verdict tiers are a human gloss over the numbers this function ALWAYS returns —
+# below-random margin, grammar gain vs an in-sample composition counter, and
+# complexity. Thresholds are conservative and documented; nothing hides behind a word.
+_LOW_COMPLEXITY_MAX = 0.30  # below this distinct-k-mer richness => repetitive
+_RANDOM_TOL = 0.05  # within this many bits of 2.0 => no usable signal
+_GRAMMAR_MIN = 0.02  # neural must beat the counter by this to claim "reads grammar"
+_BELOW_RANDOM_MIN = 0.05  # ...and sit at least this far below random
+
+_VERDICT_NOTE = (
+    "verdict is a gloss over the returned numbers: margin_vs_random_bits (distance "
+    "below the 2.0 random line), grammar_gain_bits (bits the model saves on the real "
+    "sequence vs a composition-preserving shuffle of it — i.e. sequential structure "
+    "beyond base composition), and complexity (repetitiveness)."
+)
+
+
+def score_verdict(
+    seq: str,
+    neural_bits: float,
+    shuffle_bits: float,
+    *,
+    random_bits: float = 2.0,
+    random_tol: float = _RANDOM_TOL,
+) -> dict:
+    """Turn a raw bits/bp into a calibrated, plain-English "is this real DNA?".
+
+    The two ways a low/so-so number lies, guarded with computed signals:
+      * repetition — a homopolymer scores ~0 bits but isn't grammar (complexity).
+      * beating nothing — random DNA sits at ~2.0 (margin_vs_random).
+    And the positive signal, composition-controlled: does the model score the real
+    sequence below a shuffled copy with the SAME base composition? If so, it's
+    reading sequential *order*, not just which letters are present (grammar_gain).
+
+    Pure (numpy/stdlib): the caller passes the model-derived `neural_bits` and
+    `shuffle_bits` (the model's bits/bp on composition_shuffle(seq)); this function
+    adds the model-free stats and the verdict. Bounded, JSON-serializable.
+    """
+    neural_bits, shuffle_bits = float(neural_bits), float(shuffle_bits)
+    n = sum(1 for c in seq.upper() if c in _ACGT)
+    complexity = sequence_complexity(seq)
+    gc = gc_content(seq)
+    grammar_gain = shuffle_bits - neural_bits  # > 0: model prefers the real order
+    margin_vs_random = random_bits - neural_bits  # > 0: below random
+
+    cautions: list[str] = []
+    if complexity < _LOW_COMPLEXITY_MAX:
+        verdict = "low_complexity"
+        plain = (
+            "Highly repetitive — the low surprise score reflects repetition, not "
+            "natural genome grammar."
+        )
+        cautions.append("low-complexity: a low bits/bp here is repetition, not grammar")
+    elif margin_vs_random < random_tol:
+        verdict = "random_like"
+        plain = (
+            "Indistinguishable from random DNA — the model finds essentially no "
+            "structure it can predict."
+        )
+    elif grammar_gain >= _GRAMMAR_MIN and margin_vs_random >= _BELOW_RANDOM_MIN:
+        verdict = "dna_like"
+        plain = (
+            "Looks like real DNA — the model scores it well below random AND below a "
+            "shuffle of the same bases, so it is reading sequential order, not just "
+            "base composition."
+        )
+    else:
+        verdict = "plausible_composition"
+        plain = (
+            "Plausible but unremarkable — below random, but a shuffle of the same "
+            "bases scores about as well, so the signal is base composition, not order."
+        )
+
+    # Confidence tracks how reliable the bits estimate is (i.e. length); a verdict
+    # sitting right on a tier boundary is flagged rather than silently trusted.
+    confidence = "high" if n >= 600 else "moderate" if n >= 120 else "low"
+    if n < 120:
+        cautions.append("short sequence: bits/bp estimate is noisy, verdict low-confidence")
+    # only meaningful for signal-bearing verdicts: flag when the below-random margin
+    # sits right on the threshold (the random_like/low_complexity calls are decisive).
+    if verdict in ("dna_like", "plausible_composition") and margin_vs_random - random_tol < 0.02:
+        cautions.append("borderline: below-random margin is small")
+
+    return {
+        "verdict": verdict,
+        "plain_english": plain,
+        "confidence": confidence,
+        "neural_bits_per_bp": round(neural_bits, 4),
+        "shuffle_bits_per_bp": round(shuffle_bits, 4),
+        "grammar_gain_bits": round(grammar_gain, 4),
+        "margin_vs_random_bits": round(margin_vs_random, 4),
+        "complexity": round(complexity, 4),
+        "gc_content": round(gc, 4),
+        "n_bases": int(n),
+        "cautions": cautions,
+        "note": _VERDICT_NOTE,
+    }
+
+
 def dream_report(
     generate_fn,
     score_fn,

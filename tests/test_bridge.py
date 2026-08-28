@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 def test_anthropic_tools_structure():
     from bridge.schemas import ANTHROPIC_TOOLS
 
-    assert len(ANTHROPIC_TOOLS) == 6
+    assert len(ANTHROPIC_TOOLS) == 7
     names = {t["name"] for t in ANTHROPIC_TOOLS}
     assert names == {
         "dna_score",
@@ -16,6 +16,7 @@ def test_anthropic_tools_structure():
         "dna_variant_effect",
         "dna_saturation_scan",
         "dna_embed",
+        "dna_score_report",
         "dna_generation_report",
     }
 
@@ -96,6 +97,29 @@ def test_dispatch_embed():
         result = dispatch("dna_embed", {"sequence": "ACGT"})
     assert "embedding" in result
     assert "dim" in result
+
+
+def test_dispatch_score_report():
+    import numpy as np
+
+    mock = _make_mock_model()
+    mock.score.return_value = {"bits_per_bp": 1.87, "n_scored": 400}
+    seq = "".join(np.random.default_rng(0).choice(list("ACGT"), 400))
+    with patch("bridge.tools.get_model", return_value=mock):
+        from bridge.tools import dispatch
+
+        # varied, long enough (>=120bp) that self_markov_bits + verdict run for real
+        result = dispatch("dna_score_report", {"sequence": seq})
+    # bounded verdict payload: the word AND the numbers behind it, no raw sequence
+    assert result["verdict"] in {
+        "dna_like",
+        "plausible_composition",
+        "random_like",
+        "low_complexity",
+    }
+    for key in ("plain_english", "neural_bits_per_bp", "shuffle_bits_per_bp", "grammar_gain_bits"):
+        assert key in result
+    assert "sequence" not in result
 
 
 def test_dispatch_unknown_tool():
