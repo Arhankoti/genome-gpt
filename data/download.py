@@ -4,6 +4,7 @@ between records so the model never learns cross-genome transitions.
 
     python data/download.py            # full curated set
     python data/download.py --single   # just E. coli (fast)
+    python data/download.py --cds m_tuberculosis_h37rv   # gene annotations only (Part 10)
 
 Per-genome failures are skipped with a warning, so a stale accession version
 does not abort the whole download. Swap/extend GENOMES freely.
@@ -58,6 +59,28 @@ def fetch(accession):
     return r.text.strip()
 
 
+def fetch_feature_table(accession):
+    """NCBI 5-column feature table (gene/CDS coordinates) for one accession.
+
+    Part 10's codon test labels variants synonymous / missense / nonsense from the
+    genome's own gene annotations — model-free ground truth. Parse with
+    variants.parse_feature_table.
+    """
+    import requests
+
+    params = {"db": "nuccore", "id": accession, "rettype": "ft", "retmode": "text"}
+    r = requests.get(EFETCH, params=params, timeout=120)
+    r.raise_for_status()
+    if not r.text.startswith(">Feature"):
+        raise ValueError("not a feature table")
+    return r.text
+
+
+def cds_path(name, data_dir="data"):
+    """Where a genome's feature table is cached: data/{name}.ft."""
+    return os.path.join(data_dir, f"{name}.ft")
+
+
 def relabel_header(fasta, name, accession):
     """Rewrite the record's `>` header to `>{name} {accession}`.
 
@@ -87,7 +110,22 @@ def main():
     cfg = Config()
     ap = argparse.ArgumentParser()
     ap.add_argument("--single", action="store_true")
+    ap.add_argument(
+        "--cds",
+        default="",
+        help="comma-separated genome names: fetch only their feature tables to data/{name}.ft",
+    )
     args = ap.parse_args()
+    if args.cds:
+        accessions = dict(GENOMES)
+        for name in args.cds.split(","):
+            if name not in accessions:
+                ap.error(f"unknown genome {name!r}; known: {', '.join(accessions)}")
+            out = cds_path(name, os.path.dirname(cfg.fasta_path))
+            with open(out, "w") as f:
+                f.write(fetch_feature_table(accessions[name]))
+            print(f"  ok  {name:24} {accessions[name]:14} -> {out}")
+        return
     genomes = GENOMES[:1] if args.single else GENOMES
 
     os.makedirs(os.path.dirname(cfg.fasta_path), exist_ok=True)

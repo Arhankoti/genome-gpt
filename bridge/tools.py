@@ -52,6 +52,21 @@ def dispatch(name: str, args: dict) -> dict:
         # score_verdict returns only bounded scalars/strings — the plain-English
         # verdict plus every number it was computed from (nothing hides behind a word).
         return score_verdict(seq, neural_bits, shuffle_bits)
+    if name == "dna_variant_report":
+        from variants import variant_report
+
+        # The raw LLR's sign says little (almost any change to real DNA lowers its
+        # likelihood), so the variant is ranked against every other substitution
+        # within ±flank bp, scored the same way. Bounded: scalars + short strings only.
+        return variant_report(
+            args["ref_seq"],
+            int(args["pos"]),
+            args["alt_base"],
+            effects_fn=m.variant_effects,
+            score_fn=lambda s: m.score(s)["bits_per_bp"],
+            flank=int(args.get("flank", 30)),
+            window=m.cfg.block_size,
+        )
     if name == "dna_generation_report":
         from generation import copy_stats, gc_content, js_divergence, kmer_spectrum
 

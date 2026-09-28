@@ -110,30 +110,91 @@ class GenomeModel:
         return "".join(ITOS[i] for i in out[0].tolist())
 
     @torch.no_grad()
+    def variant_effects(self, ref_seq, variants, window=None, batch_size=64):
+        """Whole-window LLR for many single-base substitutions of one sequence, batched.
+
+        Each variant is scored in a window of `window` bases (default and max:
+        block_size) centered on it, so the LLR captures both flanks plus the
+        downstream ripple: llr = sum logP(alt window) - sum logP(ref window), in
+        nats. Negative => the substitution makes the sequence less likely. Every
+        window has the same length, so all of them (and one ref window per distinct
+        window start) run through the model together in batches.
+
+        Args:
+            ref_seq: DNA string (ACGTN).
+            variants: iterable of (pos, alt_base) with 0-based pos.
+            window: scoring window length; clamped to [2, block_size] and len(ref_seq).
+            batch_size: windows per forward pass.
+
+        Returns:
+            List of float LLRs, one per variant, in input order. An alt equal to the
+            ref base returns exactly 0.0.
+
+        Raises:
+            ValueError: pos out of range or alt not in A/C/G/T.
+        """
+        ids = _encode(ref_seq, self.device)
+        L = len(ids)
+        W = min(window or self.cfg.block_size, self.cfg.block_size, L)
+        if W < 2:
+            raise ValueError("ref_seq must be at least 2 bases")
+        variants = [(int(p), a.upper()) for p, a in variants]
+        for p, a in variants:
+            if not 0 <= p < L:
+                raise ValueError(f"pos {p} out of range for a {L}-bp sequence")
+            if a not in "ACGT":
+                raise ValueError(f"alt base must be one of A/C/G/T, got {a!r}")
+
+        def win_lo(p):
+            return max(0, min(p - W // 2, L - W))
+
+        rows, row_of_ref = [], {}
+        alt_rows = []
+        for p, a in variants:
+            lo = win_lo(p)
+            if lo not in row_of_ref:
+                row_of_ref[lo] = len(rows)
+                rows.append(ids[lo : lo + W])
+            if STOI[a] == int(ids[p]):
+                alt_rows.append(None)
+                continue
+            w = ids[lo : lo + W].clone()
+            w[p - lo] = STOI[a]
+            alt_rows.append(len(rows))
+            rows.append(w)
+
+        sums = torch.empty(len(rows), device=self.device)
+        for b in range(0, len(rows), batch_size):
+            batch = torch.stack(rows[b : b + batch_size])
+            logits, _ = self.model(batch[:, :-1])
+            logp = F.log_softmax(logits, dim=-1)
+            tok = logp.gather(-1, batch[:, 1:].unsqueeze(-1)).squeeze(-1)
+            sums[b : b + len(batch)] = tok.sum(dim=1)
+
+        out = []
+        for (p, _), r in zip(variants, alt_rows):
+            out.append(0.0 if r is None else float(sums[r] - sums[row_of_ref[win_lo(p)]]))
+        return out
+
+    @torch.no_grad()
     def variant_effect(self, ref_seq, pos, alt_base, window=None):
         """Log-likelihood ratio of an alt allele vs ref at position `pos`.
 
-        Negative => the substitution makes the sequence less likely (more
-        disruptive). The variant is centered in the scoring window; edge
-        positions have little left-context and score unreliably.
+        Negative => the substitution makes the sequence less likely. The sign alone
+        is NOT a disruption call: nearly every change to real DNA lowers its
+        likelihood a little. For a calibrated verdict (ranked against every other
+        substitution nearby), use variants.variant_report / dna_variant_report.
+        The variant is centered in the scoring window; edge positions have little
+        left-context and score unreliably.
         """
-        window = window or self.cfg.block_size
-        ref = list(ref_seq.upper())
-        assert 0 <= pos < len(ref), "pos out of range"
-        alt = ref.copy()
-        alt[pos] = alt_base.upper()
-        half = window // 2
-        lo = max(0, pos - half)
-        hi = min(len(ref), lo + window)
-        lo = max(0, hi - window)
-        ref_ll = self.score("".join(ref[lo:hi]))["mean_logprob"] * (hi - lo)
-        alt_ll = self.score("".join(alt[lo:hi]))["mean_logprob"] * (hi - lo)
+        ref = ref_seq.upper()
+        llr = self.variant_effects(ref, [(pos, alt_base)], window=window)[0]
         return {
-            "llr": alt_ll - ref_ll,
+            "llr": llr,
             "ref_base": ref[pos],
             "alt_base": alt_base.upper(),
             "position": pos,
-            "interpretation": "more disruptive" if alt_ll < ref_ll else "tolerated/neutral",
+            "interpretation": "less likely than ref" if llr < 0 else "as or more likely than ref",
         }
 
     @torch.no_grad()

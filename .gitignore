@@ -16,6 +16,7 @@ data/synth.fasta
 data/*.bin
 data/*.pkl
 data/*.manifest.json
+data/*.ft
 
 # Checkpoints
 checkpoints/*.pt

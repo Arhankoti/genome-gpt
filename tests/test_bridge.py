@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 def test_anthropic_tools_structure():
     from bridge.schemas import ANTHROPIC_TOOLS
 
-    assert len(ANTHROPIC_TOOLS) == 7
+    assert len(ANTHROPIC_TOOLS) == 8
     names = {t["name"] for t in ANTHROPIC_TOOLS}
     assert names == {
         "dna_score",
@@ -17,6 +17,7 @@ def test_anthropic_tools_structure():
         "dna_saturation_scan",
         "dna_embed",
         "dna_score_report",
+        "dna_variant_report",
         "dna_generation_report",
     }
 
@@ -55,7 +56,7 @@ def _make_mock_model():
         "ref_base": "A",
         "alt_base": "T",
         "position": 0,
-        "interpretation": "more disruptive",
+        "interpretation": "less likely than ref",
     }
     m.embed.return_value = [0.1] * 16
     return m
@@ -120,6 +121,33 @@ def test_dispatch_score_report():
     for key in ("plain_english", "neural_bits_per_bp", "shuffle_bits_per_bp", "grammar_gain_bits"):
         assert key in result
     assert "sequence" not in result
+
+
+def test_dispatch_variant_report():
+    import numpy as np
+
+    mock = _make_mock_model()
+    mock.score.return_value = {"bits_per_bp": 1.87, "n_scored": 400}
+    mock.cfg.block_size = 256
+    # target first, then its background: make the target the most negative LLR
+    mock.variant_effects.side_effect = lambda seq, vs: [-5.0] + [-0.1] * (len(vs) - 1)
+    seq = "".join(np.random.default_rng(0).choice(list("ACGT"), 400))
+    alt = "A" if seq[200] != "A" else "C"
+    with patch("bridge.tools.get_model", return_value=mock):
+        from bridge.tools import dispatch
+
+        result = dispatch("dna_variant_report", {"ref_seq": seq, "pos": 200, "alt_base": alt})
+    # bounded verdict payload: the word AND the numbers behind it, no raw sequence
+    assert result["verdict"] in {
+        "likely_disruptive",
+        "uncertain",
+        "likely_tolerated",
+        "unreliable_context",
+    }
+    for key in ("plain_english", "llr", "disruption_percentile", "n_background"):
+        assert key in result
+    assert result["n_background"] == 3 * 61 - 1  # ±30 bp, 3 alts each, minus the target
+    assert all(not isinstance(v, str) or len(v) < 400 for v in result.values())
 
 
 def test_dispatch_unknown_tool():

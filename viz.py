@@ -558,3 +558,239 @@ def render_similarity(report, out_path="qc_similarity.png", title=None):
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
+
+
+_DETECTIVE_COLORS = {"llr_neural": "#2a78d6", "llr_markov": "#eb6834"}
+_DETECTIVE_LABELS = {"llr_neural": "neural (whole window)", "llr_markov": "k-gram baseline"}
+
+
+def render_variant_classes(result, out_path="variant_classes.png", title=None):
+    """The codon test in two panels (Part 10).
+
+    Left: mean LLR per annotated variant class (synonymous / missense / nonsense),
+    ±95% CI, for the neural model and the k-gram baseline on ONE shared nats axis.
+    Right: separation AUC per class pair (P(first class scores lower)), for all
+    variants and the GC-neutral subset, against the 0.5 can't-tell line. Values are
+    labelled so identity never rests on color alone.
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If there are no scored variants.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_variant_classes needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+    import numpy as np
+
+    rows = result.get("rows", [])
+    if not rows:
+        raise ValueError("no scored variants to plot")
+    scorers = [s for s in ("llr_neural", "llr_markov") if s in rows[0]]
+    classes = ("synonymous", "missense", "nonsense")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.0, 4.2), gridspec_kw={"wspace": 0.45})
+
+    # --- left: mean LLR per class, ±95% CI ---
+    off = {s: (i - (len(scorers) - 1) / 2) * 0.22 for i, s in enumerate(scorers)}
+    for s in scorers:
+        for y, cls in enumerate(classes):
+            vals = np.array([r[s] for r in rows if r["klass"] == cls], dtype=float)
+            if vals.size == 0:
+                continue
+            m = vals.mean()
+            ci = 1.96 * vals.std(ddof=1) / np.sqrt(vals.size) if vals.size > 1 else 0.0
+            yy = y + off[s]
+            ax1.errorbar(m, yy, xerr=ci, fmt="o", color=_DETECTIVE_COLORS[s], ms=7, lw=2, capsize=0)
+            ax1.annotate(
+                f"{m:+.2f}",
+                xy=(m, yy),
+                xytext=(0, 7),
+                textcoords="offset points",
+                ha="center",
+                fontsize=7,
+                color="0.3",
+            )
+    ax1.axvline(0, color="gray", linestyle=":", linewidth=1)
+    ax1.set_yticks(range(len(classes)))
+    ax1.set_yticklabels(
+        [f"{c}\n(n={sum(r['klass'] == c for r in rows)})" for c in classes], fontsize=8
+    )
+    ax1.set_ylim(-0.6, len(classes) - 0.4)
+    ax1.invert_yaxis()
+    ax1.set_xlabel("mean LLR (nats) — more negative = more disruptive")
+    ax1.set_title("Mean LLR by annotated class", fontsize=10)
+    ax1.grid(axis="x", color="0.92", linewidth=0.6)
+    ax1.set_axisbelow(True)
+
+    # --- right: separation AUC per class pair ---
+    auc = result["summary"]["auc"]
+    labels, ys = [], []
+    y = 0
+    for subset in ("all", "gc_neutral"):
+        for pair in auc[subset]:
+            a = auc[subset][pair]
+            for s in scorers:
+                v = a.get(s)
+                if v is None or not np.isfinite(v):
+                    continue
+                ax2.scatter([v], [y + off[s]], s=45, color=_DETECTIVE_COLORS[s], zorder=3)
+                ax2.annotate(
+                    f"{v:.2f}",
+                    xy=(v, y + off[s]),
+                    xytext=(6, 0),
+                    textcoords="offset points",
+                    va="center",
+                    fontsize=7,
+                    color="0.3",
+                )
+            n = a.get("n", ["?", "?"])
+            first, second = pair.split("_vs_")
+            tag = " (GC-neutral)" if subset == "gc_neutral" else ""
+            labels.append(f"{first} < {second}{tag}\nn={n[0]} vs {n[1]}")
+            ys.append(y)
+            y += 1
+    ax2.axvline(0.5, color="gray", linestyle=":", linewidth=1)
+    ax2.annotate(
+        "can't tell (0.5)",
+        xy=(0.5, -0.5),
+        xytext=(3, 0),
+        textcoords="offset points",
+        fontsize=7,
+        color="gray",
+    )
+    ax2.set_yticks(ys)
+    ax2.set_yticklabels(labels, fontsize=7)
+    ax2.set_ylim(-0.7, len(ys) - 0.4)
+    ax2.invert_yaxis()
+    ax2.set_xlim(0.3, 1.0)
+    ax2.set_xlabel("separation AUC — P(first class scores lower)")
+    ax2.set_title("Can the score tell the classes apart?", fontsize=10)
+    ax2.grid(axis="x", color="0.92", linewidth=0.6)
+    ax2.set_axisbelow(True)
+
+    handles = [
+        plt.Line2D(
+            [], [], marker="o", ls="", color=_DETECTIVE_COLORS[s], label=_DETECTIVE_LABELS[s]
+        )
+        for s in scorers
+    ]
+    fig.legend(handles=handles, loc="lower center", ncol=len(scorers), frameon=False, fontsize=8)
+    meta = result.get("meta", {})
+    fig.suptitle(
+        title
+        or f"The codon test: single-letter changes in held-out {meta.get('genome', 'genome')} genes",
+        fontsize=11,
+    )
+    fig.subplots_adjust(bottom=0.2, top=0.86)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+_SHIFT_COLORS = {"S>W": "#2a78d6", "W>S": "#eb6834"}
+_SHIFT_LABELS = {"S>W": "G/C → A/T", "W>S": "A/T → G/C"}
+
+
+def render_codon_style(results, labels, out_path="codon_style.png", title=None):
+    """Mean LLR by codon position, split by the direction of the base change (Part 10).
+
+    One panel per genome (small multiples, shared nats axis). Filled markers are the
+    neural model, hollow the k-gram baseline; color is the change direction
+    (G/C->A/T vs A/T->G/C). A model that has learned the genome's codon-position
+    composition shows a big, position-specific asymmetry that flips with the
+    genome's GC content — its "writing style", not protein function.
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If there are no results, or labels don't match.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_codon_style needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    if not results:
+        raise ValueError("no codon-test results to plot")
+    if len(labels) != len(results):
+        raise ValueError("need one label per result")
+
+    fig, axes = plt.subplots(
+        1, len(results), figsize=(4.6 * len(results), 3.4), sharex=True, squeeze=False
+    )
+    vals = []
+    for ax, res, label in zip(axes[0], results, labels):
+        shift = res["summary"]["gc_shift"]
+        for cp in ("1", "2", "3"):
+            y = int(cp) - 1
+            for j, d in enumerate(("S>W", "W>S")):
+                c = shift[cp][d]
+                yy = y + (j - 0.5) * 0.3
+                color = _SHIFT_COLORS[d]
+                for s, filled in (("llr_neural", True), ("llr_markov", False)):
+                    v = c.get(s)
+                    if v is None or v != v:  # missing or NaN
+                        continue
+                    vals.append(v)
+                    ax.scatter(
+                        [v],
+                        [yy],
+                        s=55,
+                        zorder=3,
+                        color=color if filled else "white",
+                        edgecolors=color,
+                        linewidths=1.6,
+                    )
+                ax.annotate(
+                    f"{c['llr_neural']:+.2f}",
+                    xy=(c["llr_neural"], yy),
+                    xytext=(0, 6),
+                    textcoords="offset points",
+                    ha="center",
+                    fontsize=7,
+                    color="0.3",
+                )
+        gc = res.get("meta", {}).get("gc")
+        ax.set_title(label + (f" (GC {gc:.0%})" if gc else ""), fontsize=10)
+        ax.axvline(0, color="gray", linestyle=":", linewidth=1)
+        ax.set_yticks([0, 1, 2])
+        ax.set_yticklabels(["codon pos 1", "codon pos 2", "codon pos 3"], fontsize=8)
+        ax.set_ylim(-0.6, 2.6)
+        ax.invert_yaxis()
+        ax.set_xlabel("mean LLR (nats) — negative = model dislikes it", fontsize=8)
+        ax.grid(axis="x", color="0.92", linewidth=0.6)
+        ax.set_axisbelow(True)
+    lo, hi = min(vals + [0.0]), max(vals + [0.0])
+    pad = 0.15 * (hi - lo or 1.0)
+    axes[0][0].set_xlim(lo - pad, hi + pad)
+
+    handles = [
+        plt.Line2D([], [], marker="o", ls="", color=_SHIFT_COLORS[d], label=_SHIFT_LABELS[d])
+        for d in ("S>W", "W>S")
+    ] + [
+        plt.Line2D([], [], marker="o", ls="", color="0.35", label="neural"),
+        plt.Line2D(
+            [], [], marker="o", ls="", markerfacecolor="white", color="0.35", label="k-gram"
+        ),
+    ]
+    fig.legend(handles=handles, loc="lower center", ncol=4, frameon=False, fontsize=8)
+    fig.suptitle(
+        title or "What the model actually learned: each genome's codon-position style",
+        fontsize=11,
+    )
+    fig.subplots_adjust(bottom=0.27, top=0.83, wspace=0.35)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path

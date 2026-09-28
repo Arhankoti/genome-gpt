@@ -30,17 +30,46 @@ def _contexts(s, k):
     return ctx, nxt
 
 
-def markov_bits(train_ids, val_ids, k, fit_cap=5_000_000):
-    """Fit an order-k Markov model (Laplace-smoothed) on train, score val."""
+def markov_fit(train_ids, k, fit_cap=5_000_000):
+    """Fit an order-k Markov model (Laplace-smoothed) on train; returns the
+    (VOCAB_SIZE**k, VOCAB_SIZE) next-symbol probability table."""
     tr = train_ids[:fit_cap]
     ctx_t, nxt_t = _contexts(tr, k)
     counts = np.ones((VOCAB_SIZE**k, VOCAB_SIZE), dtype=np.float64)  # +1 Laplace
     np.add.at(counts, (ctx_t, nxt_t), 1.0)
-    probs = counts / counts.sum(axis=1, keepdims=True)
+    return counts / counts.sum(axis=1, keepdims=True)
 
+
+def markov_bits(train_ids, val_ids, k, fit_cap=5_000_000):
+    """Fit an order-k Markov model (Laplace-smoothed) on train, score val."""
+    probs = markov_fit(train_ids, k, fit_cap)
     ctx_v, nxt_v = _contexts(val_ids, k)
     p = probs[ctx_v, nxt_v]
     return float(-np.log2(p).mean())
+
+
+def markov_variant_llr(probs, k, ids, pos, alt_id):
+    """Order-k Markov LLR (nats) of substituting ids[pos] -> alt_id.
+
+    The k-gram baseline for variant scoring (Part 10): only the k+1 predictions
+    whose context or target contains `pos` change, so only those are summed.
+    Positions without a full k-base left context are skipped.
+    """
+    ids = np.asarray(ids, dtype=np.int64)
+    alt = ids.copy()
+    alt[pos] = alt_id
+    lo, hi = max(k, pos), min(len(ids) - 1, pos + k)
+    if lo > hi:
+        return 0.0
+    t = np.arange(lo, hi + 1)
+
+    def ll(s):
+        ctx = np.zeros(t.size, dtype=np.int64)
+        for j in range(k):
+            ctx = ctx * VOCAB_SIZE + s[t - k + j]
+        return np.log(probs[ctx, s[t]]).sum()
+
+    return float(ll(alt) - ll(ids))
 
 
 def main():
