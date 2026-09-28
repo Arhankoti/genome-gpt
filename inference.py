@@ -12,6 +12,8 @@ from torch.nn import functional as F
 from config import ITOS, LN2, STOI, VOCAB_SIZE, Config
 from model import GenomeGPT
 
+_PROFILE_KEYS = ("positions", "surprise_bits", "entropy_bits", "expected_gc", "mean_alt_llr")
+
 
 def _encode(seq, device):
     ids = [STOI.get(c.upper(), STOI["N"]) for c in seq]
@@ -198,6 +200,71 @@ class GenomeModel:
         }
 
     @torch.no_grad()
+    def _left_logprobs(self, ids):
+        """(T, vocab) logP(token_p | left context) for every position of `ids`.
+
+        Sliding windows (stride block_size//2): the first window keeps all its
+        targets, later windows keep only their second half, so every position gets
+        at least half a block of left context. Row 0 (no left context) stays NaN.
+        """
+        T = len(ids)
+        logp_rows = torch.full((T, VOCAB_SIZE), float("nan"), device=self.device)
+        B = self.cfg.block_size
+        stride = max(1, B // 2)
+        for wstart in range(0, T - 1, stride):
+            window = ids[wstart : wstart + B]
+            if len(window) < 2:
+                break
+            logits, _ = self.model(window.unsqueeze(0))
+            logp = F.log_softmax(logits[0], dim=-1)  # (L, vocab); logp[j] scores token j+1
+            # first window: keep all local targets 1..L-1; later windows keep the
+            # second half (local target >= stride) for better left context.
+            first_local = 1 if wstart == 0 else stride
+            for j in range(first_local - 1, len(window) - 1):
+                p = wstart + j + 1
+                if torch.isnan(logp_rows[p, 0]):
+                    logp_rows[p] = logp[j]
+            if wstart + B >= T:
+                break
+        return logp_rows
+
+    @torch.no_grad()
+    def site_profile(self, seq):
+        """What the model expected at each position *before* seeing it (Part 11).
+
+        One left-context pass (the same one saturation_scan reads) summarized per
+        position. `entropy_bits` and `expected_gc` depend only on the bases to the
+        LEFT of a site, so any structure in them is the model anticipating the
+        sequence, not reacting to the base itself; `surprise_bits` does use the
+        actual base (= -log2 P(ref | left)).
+
+        Args:
+            seq: DNA string (ACGTN).
+
+        Returns:
+            dict of equal-length lists over positions 1..len(seq)-1 (position 0 has
+            no left context): positions, surprise_bits, entropy_bits (over A/C/G/T,
+            renormalized), expected_gc (P(G)+P(C), renormalized over A/C/G/T), and
+            mean_alt_llr (the saturation landscape's column mean: the average
+            logP(alt) - logP(ref) over the 3 alternate bases, nats).
+            Plain Python floats/ints (JSON-serializable).
+        """
+        ids = _encode(seq, self.device)
+        if len(ids) < 2:
+            return {k: [] for k in _PROFILE_KEYS}
+        rows = self._left_logprobs(ids)[1:]
+        acgt = torch.softmax(rows[:, :4], dim=-1)  # renormalize over the 4 real bases
+        ref_lp = rows.gather(1, ids[1:].unsqueeze(1)).squeeze(1)
+        entropy = -(acgt * torch.log2(acgt.clamp_min(1e-12))).sum(dim=1)
+        return {
+            "positions": list(range(1, len(ids))),
+            "surprise_bits": (-ref_lp / LN2).tolist(),
+            "entropy_bits": entropy.tolist(),
+            "expected_gc": (acgt[:, 1] + acgt[:, 2]).tolist(),
+            "mean_alt_llr": ((rows[:, :4].sum(dim=1) - 4 * ref_lp) / 3).tolist(),
+        }
+
+    @torch.no_grad()
     def saturation_scan(self, seq, start=0, end=None, top_k=20):
         """Single-site LLR for every single-base substitution over seq[start:end].
 
@@ -246,25 +313,7 @@ class GenomeModel:
         if start >= end:
             return empty
 
-        # logp_rows[p] holds logP(base_p | left context); NaN row => unscored.
-        logp_rows = torch.full((T, VOCAB_SIZE), float("nan"), device=self.device)
-        B = self.cfg.block_size
-        stride = max(1, B // 2)
-        for wstart in range(0, T - 1, stride):
-            window = ids[wstart : wstart + B]
-            if len(window) < 2:
-                break
-            logits, _ = self.model(window.unsqueeze(0))
-            logp = F.log_softmax(logits[0], dim=-1)  # (L, vocab); logp[j] scores token j+1
-            # first window: keep all local targets 1..L-1; later windows keep the
-            # second half (local target >= stride) for better left context.
-            first_local = 1 if wstart == 0 else stride
-            for j in range(first_local - 1, len(window) - 1):
-                p = wstart + j + 1
-                if torch.isnan(logp_rows[p, 0]):
-                    logp_rows[p] = logp[j]
-            if wstart + B >= T:
-                break
+        logp_rows = self._left_logprobs(ids)
 
         real_ids = (0, 1, 2, 3)  # A, C, G, T
         grid, ref_bases, positions, worst_per_pos, hits = [], [], [], [], []
