@@ -794,3 +794,191 @@ def render_codon_style(results, labels, out_path="codon_style.png", title=None):
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
+
+
+# fixed categorical order (slots 1-4); the shuffled control is a neutral gray
+_FRAME_SERIES = (
+    ("neural_expected_gc", "neural anticipation (expected G+C)", "#2a78d6", "-"),
+    ("kgram_expected_gc", "k-gram anticipation (expected G+C)", "#eb6834", "-"),
+    ("neural_landscape", "neural saturation landscape", "#1baf7a", "-"),
+    ("gc_frame_plot", "classic GC frame plot", "#eda100", "-"),
+    ("shuffled_neural_expected_gc", "control: shuffled window", "#8a8985", "--"),
+)
+
+
+def render_frame_accuracy(results, labels, out_path="frame_accuracy.png", title=None):
+    """Reading-frame calling accuracy vs window length, one panel per genome (Part 11).
+
+    x = window length (bp, log scale), y = fraction of held-out gene windows whose
+    frame was called correctly (chance = 1/3, marked). One line per signal, direct-
+    labelled at its right end so identity never rests on color alone.
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If there are no results, or labels don't match.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_frame_accuracy needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    if not results:
+        raise ValueError("no frame-test results to plot")
+    if len(labels) != len(results):
+        raise ValueError("need one label per result")
+
+    fig, axes = plt.subplots(
+        1, len(results), figsize=(5.4 * len(results), 4.0), sharey=True, squeeze=False
+    )
+    for ax, res, label in zip(axes[0], results, labels):
+        Ls = res["lengths"]
+        ends = []
+        for key, name, color, ls in _FRAME_SERIES:
+            sig = res["signals"].get(key)
+            if sig is None:
+                continue
+            ys = [sig["by_length"][str(L)]["accuracy"] for L in Ls]
+            ax.plot(Ls, ys, color=color, linestyle=ls, linewidth=2, marker="o", markersize=5)
+            ends.append([ys[-1], ys[-1]])
+        # end labels: push apart so converging lines don't print on top of each other
+        ends.sort()
+        for i in range(1, len(ends)):
+            ends[i][1] = max(ends[i][1], ends[i - 1][1] + 0.045)
+        for y, label_y in ends:
+            ax.annotate(
+                f"{y:.2f}",
+                xy=(Ls[-1], y),
+                xytext=(Ls[-1] * 1.07, label_y),
+                textcoords="data",
+                va="center",
+                fontsize=7,
+                color="0.3",
+            )
+        ax.axhline(1 / 3, color="gray", linestyle=":", linewidth=1)
+        ax.annotate(
+            "chance (1/3)",
+            xy=(Ls[0], 1 / 3),
+            xytext=(0, 4),
+            textcoords="offset points",
+            fontsize=7,
+            color="gray",
+        )
+        ax.set_xscale("log", base=2)
+        ax.set_xticks(Ls)
+        ax.set_xticklabels([str(L) for L in Ls])
+        ax.set_xlim(Ls[0] * 0.85, Ls[-1] * 1.35)
+        ax.set_ylim(0, 1.02)
+        ax.set_xlabel("window length (bp)")
+        ax.set_title(label, fontsize=10)
+        ax.grid(axis="y", color="0.92", linewidth=0.6)
+        ax.set_axisbelow(True)
+    axes[0][0].set_ylabel("frame called correctly (held-out windows)")
+
+    handles = [
+        plt.Line2D([], [], color=c, linestyle=ls, linewidth=2, marker="o", label=n)
+        for _, n, c, ls in _FRAME_SERIES
+    ]
+    fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False, fontsize=8)
+    fig.suptitle(
+        title or "Which letter of the codon is this? Reading the frame from a landscape",
+        fontsize=11,
+    )
+    fig.subplots_adjust(bottom=0.27, top=0.87, wspace=0.12)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+_CODON_COLORS = {1: "#2a78d6", 2: "#eb6834", 3: "#1baf7a"}
+
+
+def render_gene_landscape(scan, expected_gc, codon_pos, out_path="gene_landscape.png", title=None):
+    """A saturation landscape drawn against the annotated reading frame (Part 11).
+
+    Top: the usual heatmap (alt base x position, diverging LLR centered at 0), with
+    thin guides at codon boundaries. Bottom, sharing x: the model's expected G+C at
+    each site *before seeing it*, one bar per position colored by codon position
+    (1/2/3 on the gene's strand; gray where no gene covers it).
+
+    Args:
+        scan: GenomeModel.saturation_scan dict.
+        expected_gc: per scanned position, the model's P(G)+P(C) (site_profile).
+        codon_pos: per scanned position, 1/2/3 or 0 (not in a single CDS).
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If the scan is empty or the tracks don't line up.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from matplotlib.colors import TwoSlopeNorm
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_gene_landscape needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    grid = scan["grid"]
+    positions = scan["positions"]
+    if not grid:
+        raise ValueError("scan has no scored positions to plot (n_scored == 0)")
+    if not (len(expected_gc) == len(codon_pos) == len(positions)):
+        raise ValueError("expected_gc and codon_pos must align with scan positions")
+
+    data = np.asarray(grid, dtype=float).T
+    vmax = float(np.abs(data).max()) or 1.0
+    norm = TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
+    n = len(positions)
+    fig_w = max(7.0, min(24.0, n * 0.09))
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1, figsize=(fig_w, 4.4), sharex=True, gridspec_kw={"height_ratios": [1.3, 1.0]}
+    )
+    im = ax1.imshow(data, aspect="auto", cmap="RdBu", norm=norm, interpolation="nearest")
+    ax1.set_yticks(range(len(ALT_BASES)))
+    ax1.set_yticklabels(ALT_BASES)
+    ax1.set_ylabel("alt base")
+    # codon boundary guides: before each codon position 1 (gene orientation)
+    for i in range(1, n):
+        if codon_pos[i] and codon_pos[i - 1] and {codon_pos[i], codon_pos[i - 1]} == {1, 3}:
+            ax1.axvline(i - 0.5, color="0.25", linewidth=0.4, alpha=0.6)
+    cbar = fig.colorbar(im, ax=[ax1, ax2], fraction=0.02, pad=0.01)
+    cbar.set_label("LLR (alt − ref), nats")
+
+    colors = [_CODON_COLORS.get(c, "#b0afa9") for c in codon_pos]
+    ax2.bar(range(n), expected_gc, width=0.8, color=colors)
+    ax2.set_ylim(0, 1)
+    ax2.set_ylabel("expected G+C\n(before seeing it)", fontsize=8)
+    ax2.axhline(0.5, color="gray", linestyle=":", linewidth=0.8)
+    ax2.grid(axis="y", color="0.92", linewidth=0.6)
+    ax2.set_axisbelow(True)
+    step = max(1, n // 20)
+    ax2.set_xticks(list(range(0, n, step)))
+    ax2.set_xticklabels([str(positions[i]) for i in range(0, n, step)], rotation=90, fontsize=7)
+    ax2.set_xlabel("genome position (bp)")
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=_CODON_COLORS[c], label=f"codon position {c}")
+        for c in (1, 2, 3)
+    ]
+    ax2.legend(
+        handles=handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.45),
+        ncol=3,
+        frameon=False,
+        fontsize=8,
+    )
+    if title:
+        ax1.set_title(title)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
