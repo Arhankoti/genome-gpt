@@ -24,7 +24,8 @@ SYSTEM = (
     "effect, or embedding. Extract sequences/positions from the user's request, call "
     "the right tool, then explain the numeric result in plain language. Bits-per-"
     "nucleotide near 2.0 means random; lower means more natural. A negative variant "
-    "LLR means the substitution is more disruptive."
+    "LLR only means the substitution makes the sequence less likely — nearly every "
+    "change does; to judge whether a variant is disruptive, use dna_variant_report."
 )
 
 

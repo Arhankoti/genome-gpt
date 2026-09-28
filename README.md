@@ -33,12 +33,14 @@ evaluate.py          Markov-baseline comparison + GC / k-mer checks
 benchmark.py         real-data: neural vs Markov per held-out genome -> table + PNG
 scaling.py           size ladder (fixed data/split/budget) -> val + gap vs params
 dataqc.py            CLI: inspect a corpus -> cleanliness table + similarity heatmap
-inference.py         score / generate / variant_effect / saturation_scan / embed
+inference.py         score / generate / variant_effect(s) / saturation_scan / embed
 generation.py        pure stats to judge dreams: kmer fidelity + copy/novelty (numpy)
 viz.py               render scan / sweep / benchmark / scaling / similarity PNGs (matplotlib)
 landscape.py         CLI: scan a seq/FASTA window -> ranked table + landscape PNG
 dream.py             CLI: sweep sampling temperature -> fidelity-vs-novelty table + PNG
 score.py             CLI: score a seq -> plain-English verdict (vs random + a shuffle)
+variants.py          pure variant helpers: codon table, syn/missense/nonsense labels, verdict
+detective.py         CLI: calibrated variant call, or the codon test on a held-out genome
 bridge/
   schemas.py         Anthropic tools + OpenAI functions
   tools.py           dispatch tool calls to the genome model
@@ -115,6 +117,38 @@ The verdict is a gloss; the tool always returns every number behind it. On a hel
 *M. tuberculosis* slice the model scores **1.93 bits** and its shuffle **2.01** — real
 DNA reads `dna_like`, the shuffle collapses to `random_like`. Exposed to the frontier
 model as `dna_score_report`; it speaks the verdict and never touches raw `ACGT`.
+
+## The Variant Detective
+
+`dna_variant_effect` returns a raw LLR, and its sign is nearly useless as a verdict:
+on held-out *M. tuberculosis* genes, **65%** of all single-base changes — including
+**74%** of synonymous ones — lower the model's likelihood. `dna_variant_report`
+(CLI: `detective.py`) calibrates instead:
+
+- **Local background.** The variant's whole-window LLR is ranked against every other
+  substitution within ±30 bp, scored the same way in one batched pass
+  (`GenomeModel.variant_effects`) → `disruption_percentile`.
+- **Context guard.** The surrounding window goes through the Part 9 score verdict
+  first; in DNA the model can't read (`random_like` / `low_complexity`), the call is
+  `unreliable_context` rather than a confident guess.
+
+```bash
+python detective.py --ckpt checkpoints/real.pt --seq ACGT... --pos 400 --alt A
+python data/download.py --cds m_tuberculosis_h37rv,h_pylori_26695     # gene annotations
+python detective.py --ckpt checkpoints/real.pt --codon_test --genome m_tuberculosis_h37rv \
+    --n_codons 1500 --verdict_codons 150 --out mtb.json --fig variant_classes.png
+python detective.py --style_compare mtb.json,hp.json --labels "M. tb,H. pylori" --fig codon_style.png
+```
+
+The **codon test** labels every substitution in sampled codons of annotated genes as
+synonymous / missense / nonsense (model-free ground truth) and reports a separation
+AUC for the neural LLR next to an order-5 k-gram. On both held-out genomes, with G+C
+held fixed, the model separates **nonsense from synonymous** (AUC 0.72 / 0.71 vs the
+k-gram's 0.67 / 0.64) but **missense vs synonymous is a coin flip** (0.50 / 0.48). Its
+strongest signal is each genome's codon-position composition — it learned the reading
+frame and codon bias, i.e. the genome's *style*, not protein function — so a synonymous
+change can read as disruptive. The verdict is a model-plausibility call, not a
+pathogenicity prediction.
 
 ## Saturation mutagenesis
 
@@ -261,7 +295,7 @@ rather than aborting. Set `frontier_model` in `config.py` to a model you can rea
 ```bash
 pip install -r requirements-dev.txt   # adds pytest + ruff on top of runtime deps
 
-pytest tests/          # 185 tests, CPU-only, ~2 s — no checkpoint needed
+pytest tests/          # 218 tests, CPU-only, ~2 s — no checkpoint needed
 ruff check .           # lint
 ruff format .          # format
 ```
@@ -278,6 +312,8 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to add a new tool or extend the
   nothing beats ~2.0 there. Real bacteria share DNA grammar; that is where the
   neural-over-Markov gap appears. The harness is for measuring it, not faking it.
 - **Variant edges.** Keep variants centered — edge positions score unreliably.
+- **Variant verdicts ≠ protein impact.** Inside genes the model's surprise tracks codon
+  bias as much as function; missense vs synonymous is near chance (Part 10).
 - **GPU determinism** is partial; the seed is logged in each checkpoint.
 
 ## Upgrade backlog

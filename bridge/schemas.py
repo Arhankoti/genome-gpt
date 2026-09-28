@@ -1,6 +1,6 @@
 """The contract between the frontier model and the genome model.
 
-Same four functions, declared once for Anthropic and once for OpenAI.
+Every tool is declared once here (ANTHROPIC_TOOLS); OPENAI_FUNCTIONS is derived from it.
 """
 
 # --- Anthropic (Messages API `tools`) ---
@@ -31,8 +31,10 @@ ANTHROPIC_TOOLS = [
     },
     {
         "name": "dna_variant_effect",
-        "description": "Estimate the effect of a single-base substitution via log-likelihood "
-        "ratio. Negative LLR means the variant is more disruptive.",
+        "description": "Raw log-likelihood ratio of a single-base substitution (whole "
+        "window centered on the variant). Negative LLR means the variant makes the "
+        "sequence less likely — but nearly every change to real DNA does, so the sign "
+        "alone is not a disruption call. Use dna_variant_report for a calibrated verdict.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -88,6 +90,38 @@ ANTHROPIC_TOOLS = [
             "type": "object",
             "properties": {"sequence": {"type": "string", "description": "DNA string (ACGTN)"}},
             "required": ["sequence"],
+        },
+    },
+    {
+        "name": "dna_variant_report",
+        "description": "Judge whether a single-base substitution is likely disruptive, "
+        "with a plain-English verdict and the numbers behind it. The variant's "
+        "whole-window LLR is ranked against every other single-base substitution "
+        "within ±flank bp (disruption_percentile = fraction of nearby changes it is "
+        "more disruptive than), and the surrounding DNA is checked first (a variant in "
+        "random-like or repetitive DNA is unreliable_context). Verdict is one of "
+        "likely_disruptive / uncertain / likely_tolerated / unreliable_context. A "
+        "model-plausibility call, not a clinical pathogenicity prediction: inside genes "
+        "the model's surprise tracks the genome's codon-position base composition at "
+        "least as much as protein impact, so a synonymous change can score as disruptive "
+        "and missense vs synonymous is near chance. Use this "
+        "instead of dna_variant_effect when a human-readable judgment is wanted.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ref_seq": {
+                    "type": "string",
+                    "description": "Reference DNA (ACGTN) with the variant well inside it; "
+                    "a few hundred bp of context on each side is ideal",
+                },
+                "pos": {"type": "integer", "description": "0-based position of the variant"},
+                "alt_base": {"type": "string", "description": "Alternate base (A/C/G/T)"},
+                "flank": {
+                    "type": "integer",
+                    "description": "Background radius in bp (default 30)",
+                },
+            },
+            "required": ["ref_seq", "pos", "alt_base"],
         },
     },
     {

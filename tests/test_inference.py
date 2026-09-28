@@ -78,7 +78,7 @@ def test_variant_effect_keys(gm):
 
 
 def test_variant_effect_pos_out_of_range(gm):
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         gm.variant_effect("ACGT", pos=10, alt_base="A")
 
 
@@ -92,7 +92,7 @@ def test_variant_effect_same_base_zero_llr(gm):
 def test_variant_effect_interpretation_strings(gm):
     ref = "ACGT" * 8
     result = gm.variant_effect(ref, pos=4, alt_base="C")
-    assert result["interpretation"] in ("more disruptive", "tolerated/neutral")
+    assert result["interpretation"] in ("less likely than ref", "as or more likely than ref")
 
 
 # --- embed ---

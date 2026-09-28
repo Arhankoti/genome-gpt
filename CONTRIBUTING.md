@@ -53,7 +53,7 @@ tests/           pytest suite mirroring the module structure above
    `@torch.no_grad()` and return a plain dict (JSON-serializable).
 
 2. **`bridge/schemas.py`** — add an entry to `ANTHROPIC_TOOLS` following
-   the same shape as the existing four tools. The `OPENAI_FUNCTIONS` list is
+   the same shape as the existing tools. The `OPENAI_FUNCTIONS` list is
    derived automatically.
 
 3. **`bridge/tools.py`** — add an `if name == "dna_yourname":` branch in
