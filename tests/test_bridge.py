@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 def test_anthropic_tools_structure():
     from bridge.schemas import ANTHROPIC_TOOLS
 
-    assert len(ANTHROPIC_TOOLS) == 8
+    assert len(ANTHROPIC_TOOLS) == 11
     names = {t["name"] for t in ANTHROPIC_TOOLS}
     assert names == {
         "dna_score",
@@ -19,6 +19,9 @@ def test_anthropic_tools_structure():
         "dna_score_report",
         "dna_variant_report",
         "dna_generation_report",
+        "dna_find_orfs",
+        "dna_gc_scan",
+        "dna_restriction_sites",
     }
 
 
@@ -148,6 +151,26 @@ def test_dispatch_variant_report():
         assert key in result
     assert result["n_background"] == 3 * 61 - 1  # ±30 bp, 3 alts each, minus the target
     assert all(not isinstance(v, str) or len(v) < 400 for v in result.values())
+
+
+def test_dispatch_classic_tools_never_load_the_model():
+    import numpy as np
+
+    seq = "".join(np.random.default_rng(0).choice(list("ACGT"), 3000))
+    with patch("bridge.tools.get_model", side_effect=AssertionError("model loaded")):
+        from bridge.tools import dispatch
+
+        orfs = dispatch("dna_find_orfs", {"sequence": seq, "min_codons": 20, "top_k": 3})
+        gc = dispatch("dna_gc_scan", {"sequence": seq, "window": 100})
+        sites = dispatch("dna_restriction_sites", {"sequence": seq, "enzymes": ["EcoRI", "TaqI"]})
+        bad = dispatch("dna_restriction_sites", {"sequence": seq, "enzymes": ["NoSuchI"]})
+    assert len(orfs["longest_orfs"]) <= 3 and "n_orfs" in orfs
+    assert 0 < gc["gc"] < 1 and len(gc["profile"]) <= 40
+    assert set(sites["enzymes"]) == {"EcoRI", "TaqI"}
+    assert "error" in bad
+    # bounded payloads: the sequence itself never goes back to the frontier model
+    for r in (orfs, gc, sites):
+        assert seq not in str(r)
 
 
 def test_dispatch_unknown_tool():

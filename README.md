@@ -42,9 +42,11 @@ score.py             CLI: score a seq -> plain-English verdict (vs random + a sh
 variants.py          pure variant helpers: codon table, syn/missense/nonsense labels, verdict
 detective.py         CLI: calibrated variant call, or the codon test on a held-out genome
 frames.py            pure reading-frame helpers: phase means, frame template/call, period-3 SNR
+classic.py           pure classic tools: ORF finder (+ shuffle null), GC/skew scan, restriction map
+oldschool.py         CLI: classic tools on a seq, or the ORF / skew / site test on a held-out genome
 bridge/
   schemas.py         Anthropic tools + OpenAI functions
-  tools.py           dispatch tool calls to the genome model
+  tools.py           dispatch tool calls to the genome model (classic tools skip the model)
   agent.py           orchestration loop (Opus / GPT)
 ```
 
@@ -193,6 +195,31 @@ expected G+C per codon position matches the observed 68/50/80% (*M. tb*) to ~2 p
 both strands. Caveat: on shuffled windows the model still produces a period-3 rhythm
 (random phase) — it imposes a frame, so a periodicity score needs a shuffle null.
 
+## Old-school tools, measured (Part 12)
+
+Next to the neural tools sit the deterministic ones a biologist reaches for first,
+behind the same schema: `dna_find_orfs` (six-frame ORF finder; every ORF carries a
+`shuffle_p` — how often a composition-matched shuffle of the same length holds one that
+long), `dna_gc_scan` (windowed G+C, cumulative GC skew extrema) and
+`dna_restriction_sites` (sites, cuts, digest fragments). They're pure numpy
+(`classic.py`) and never load the model. `oldschool.py --orf_test` measures them against
+a held-out genome's annotation:
+
+```bash
+python oldschool.py --orf_test --genome m_tuberculosis_h37rv --out orfs_mtb.json --no-plot
+python oldschool.py --compare orfs_mtb.json,orfs_hp.json --labels "M. tb,H. pylori" \
+    --fig orf_calibration.png --skew_fig gc_skew.png
+```
+
+The textbook "≥100 codons" ORF rule is a GC-dependent coin: in *H. pylori* (39% G+C)
+76% of its calls are annotated genes and a shuffle produces chance ORFs equal to 7% of
+the calls; in *M. tuberculosis* (66% G+C, A/T-rich stop codons are rare) only 25% are
+genes and the shuffle produces 11,239 ORFs that long — 0.76 of the call count. Calibrating the cutoff
+on the shuffle (chance ≤ 5% of calls) moves it to 110 vs 280 codons. What's left
+after calibration is mostly *antisense shadows* of real genes, which a composition
+null can't catch. The cumulative GC skew minimum lands 0.3 kb from *dnaA* in
+*M. tb* and 26.5 kb (1.6% of the genome) away in *H. pylori*.
+
 ## Generation evaluation
 
 The model can dream (`generate`), but is the dream any good? Judge it on **two**
@@ -321,7 +348,7 @@ rather than aborting. Set `frontier_model` in `config.py` to a model you can rea
 ```bash
 pip install -r requirements-dev.txt   # adds pytest + ruff on top of runtime deps
 
-pytest tests/          # 238 tests, CPU-only, ~2 s — no checkpoint needed
+pytest tests/          # 258 tests, CPU-only, ~2 s — no checkpoint needed
 ruff check .           # lint
 ruff format .          # format
 ```
@@ -346,8 +373,9 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to add a new tool or extend the
 
 1. ~~Saturation mutagenesis (scan every position × 3 alts into a ranked landscape).~~
    ✅ Done — `saturation_scan` / `landscape.py` / `dna_saturation_scan`.
-2. Classical tools beside neural ones (ORF finder, GC scan, restriction sites)
-   behind the same schema.
+2. ~~Classical tools beside neural ones (ORF finder, GC scan, restriction sites)
+   behind the same schema.~~ ✅ Done — `classic.py` / `oldschool.py` /
+   `dna_find_orfs`, `dna_gc_scan`, `dna_restriction_sites`.
 3. Embedding similarity search (cosine-NN index over `embed()`).
 4. Byte-level + a small Hyena block for longer context (only when a task needs >1024 bp).
 5. Port `inference.py` to Rust/`candle` for a production serving tier.

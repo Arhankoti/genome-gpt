@@ -25,7 +25,10 @@ SYSTEM = (
     "the right tool, then explain the numeric result in plain language. Bits-per-"
     "nucleotide near 2.0 means random; lower means more natural. A negative variant "
     "LLR only means the substitution makes the sequence less likely — nearly every "
-    "change does; to judge whether a variant is disruptive, use dna_variant_report."
+    "change does; to judge whether a variant is disruptive, use dna_variant_report. "
+    "dna_find_orfs, dna_gc_scan and dna_restriction_sites are deterministic classic "
+    "tools: use them for reading frames, G+C and enzyme sites, and remember a long ORF "
+    "is only meaningful if its shuffle_p is small."
 )
 
 
