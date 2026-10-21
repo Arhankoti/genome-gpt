@@ -117,4 +117,15 @@ def dispatch(name: str, args: dict) -> dict:
             "note": "fidelity (js) and novelty (copied fraction) must both be good; "
             "self_bits_per_bp is a weak sanity check only",
         }
+    if name == "dna_orf_judge":
+        from orfjudge import judge_pairs
+
+        # The ORF finder proposes; classic codon usage and the model's anticipation
+        # each judge every overlapping antisense pair. Bounded: counts + top_k pairs.
+        return judge_pairs(
+            args["sequence"],
+            m.base_probs,
+            min_codons=int(args.get("min_codons", 100)),
+            top_k=int(args.get("top_k", 10)),
+        )
     return {"error": f"unknown tool {name}"}

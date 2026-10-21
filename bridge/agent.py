@@ -28,7 +28,8 @@ SYSTEM = (
     "change does; to judge whether a variant is disruptive, use dna_variant_report. "
     "dna_find_orfs, dna_gc_scan and dna_restriction_sites are deterministic classic "
     "tools: use them for reading frames, G+C and enzyme sites, and remember a long ORF "
-    "is only meaningful if its shuffle_p is small."
+    "is only meaningful if its shuffle_p is small. To tell a gene from its antisense "
+    "shadow ORF, use dna_orf_judge and trust a pick only when its two judges agree."
 )
 
 

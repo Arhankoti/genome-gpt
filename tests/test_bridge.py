@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 def test_anthropic_tools_structure():
     from bridge.schemas import ANTHROPIC_TOOLS
 
-    assert len(ANTHROPIC_TOOLS) == 11
+    assert len(ANTHROPIC_TOOLS) == 12
     names = {t["name"] for t in ANTHROPIC_TOOLS}
     assert names == {
         "dna_score",
@@ -22,6 +22,7 @@ def test_anthropic_tools_structure():
         "dna_find_orfs",
         "dna_gc_scan",
         "dna_restriction_sites",
+        "dna_orf_judge",
     }
 
 
@@ -171,6 +172,24 @@ def test_dispatch_classic_tools_never_load_the_model():
     # bounded payloads: the sequence itself never goes back to the frontier model
     for r in (orfs, gc, sites):
         assert seq not in str(r)
+
+
+def test_dispatch_orf_judge():
+    import numpy as np
+
+    mock = _make_mock_model()
+    mock.base_probs.side_effect = lambda s: np.full((len(s), 4), 0.25)
+    p = [0.15, 0.35, 0.35, 0.15]  # GC-rich: plenty of long chance ORFs to judge
+    seq = "".join(np.random.default_rng(0).choice(list("ACGT"), 60000, p=p))
+    with patch("bridge.tools.get_model", return_value=mock):
+        from bridge.tools import dispatch
+
+        result = dispatch("dna_orf_judge", {"sequence": seq, "min_codons": 60, "top_k": 4})
+    assert result["verdict"] == "judged"
+    assert len(result["pairs"]) <= 4 and result["n_pool"] >= 30
+    for row in result["pairs"]:
+        assert row["classic_pick"] in "+-" and row["neural_pick"] in "+-"
+    assert seq not in str(result)
 
 
 def test_dispatch_unknown_tool():

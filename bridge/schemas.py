@@ -217,6 +217,36 @@ ANTHROPIC_TOOLS = [
             "required": ["sequence"],
         },
     },
+    # --- neural + classical, together (Part 13) ---
+    {
+        "name": "dna_orf_judge",
+        "description": "Gene or shadow? For every pair of long ORFs that overlap on "
+        "opposite strands (a real gene often casts a long 'shadow' ORF on its other "
+        "strand, which an ORF finder cannot tell apart from it), two judges vote on "
+        "which strand looks like the gene: classic codon usage and the genome model's "
+        "codon-position anticipation, both self-trained on this sequence's own ORFs (no "
+        "annotation). Returns counts, the judges' agreement rate, and the longest-"
+        "overlap pairs (+/- ORF coordinates, each judge's pick and margin). Trust a "
+        "pick when the judges agree (on held-out genomes, right 94-100% of the time "
+        "from 480 bp); treat disagreement as unresolved. Needs a long sequence (a "
+        "contig or genome, >= ~100 kb) so there are enough ORFs to self-train.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sequence": {"type": "string", "description": "DNA string (ACGTN)"},
+                "min_codons": {
+                    "type": "integer",
+                    "description": "ORF length cutoff in codons (default 100; raise it for "
+                    "GC-rich DNA, see dna_find_orfs shuffle_p)",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "How many pairs to return (default 10)",
+                },
+            },
+            "required": ["sequence"],
+        },
+    },
 ]
 
 # --- OpenAI (Chat Completions `tools`) ---
