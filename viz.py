@@ -1239,3 +1239,99 @@ def render_shadow_test(results, labels, out_path="shadow_test.png", title=None):
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
+
+
+# fingerprint-test bars: (key, label, color) — embedding keeps the neural blue,
+# k-gram/k-mer the orange, composition-only controls gray
+_FP_ID_BARS = (
+    ("gc_only", "GC only", "#999999"),
+    ("embedding_zscored", "embedding", "#2a78d6"),
+    ("embedding_minus_gc", "embedding − GC", "#8fb8ea"),
+    ("kmer", "4-mer counts", "#eb6834"),
+    ("kmer_minus_gc", "4-mer − GC", "#f4b79c"),
+)
+
+
+def render_fingerprints(res, out_path="fingerprints.png", title=None):
+    """Embedding fingerprints vs composition baselines (Part 14).
+
+    Left: genome identification by 1-nearest-neighbour (real queries, and the same
+    queries letter-shuffled). Right: coding-strand linear probe inside each
+    held-out genome, with the majority-class and shuffled-label controls.
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If the result has no identification table.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_fingerprints needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    ident = res.get("identify", {}).get("real")
+    if not ident:
+        raise ValueError("no identification results to plot")
+    fig, (a, b) = plt.subplots(1, 2, figsize=(11, 4.4), gridspec_kw={"width_ratios": [1.2, 1]})
+    x = np.arange(len(_FP_ID_BARS))
+    cols = [c for _, _, c in _FP_ID_BARS]
+    real = [ident[k]["all"] for k, _, _ in _FP_ID_BARS]
+    shuf = [res["identify"]["shuffled"][k]["all"] for k, _, _ in _FP_ID_BARS]
+    a.bar(x - 0.2, real, 0.4, color=cols, label="real windows")
+    a.bar(x + 0.2, shuf, 0.4, color="white", edgecolor=cols, hatch="//", label="letter-shuffled")
+    a.axhline(res["chance"], color="gray", linestyle=":", linewidth=1)
+    a.annotate(
+        "chance",
+        xy=(x[-1] + 0.45, res["chance"]),
+        xytext=(0, 3),
+        textcoords="offset points",
+        ha="right",
+        fontsize=7,
+        color="gray",
+    )
+    a.set_xticks(x)
+    a.set_xticklabels([n for _, n, _ in _FP_ID_BARS], fontsize=8)
+    a.set_ylabel("which of 20 genomes? (1-NN accuracy)")
+    a.set_title("Genome identification", fontsize=10)
+    a.legend(frameon=False, fontsize=8, loc="upper left")
+    a.grid(axis="y", color="0.92", linewidth=0.6)
+    a.set_axisbelow(True)
+
+    strand = res.get("strand", {})
+    groups = (
+        ("majority", "majority class", "#cccccc"),
+        ("gc", "GC", "#999999"),
+        ("embedding_shuffled_labels", "embedding, shuffled labels", "#cfe0f5"),
+        ("kmer", "4-mer", "#eb6834"),
+        ("embedding", "embedding", "#2a78d6"),
+    )
+    names = list(strand)
+    w = 0.8 / len(groups)
+    for gi, (key, lab, col) in enumerate(groups):
+        ys = [
+            max(strand[n]["plus_frac"], 1 - strand[n]["plus_frac"])
+            if key == "majority"
+            else strand[n][key]
+            for n in names
+        ]
+        b.bar(np.arange(len(names)) + (gi - 2) * w, ys, w, color=col, label=lab)
+    b.axhline(0.5, color="gray", linestyle=":", linewidth=1)
+    b.set_xticks(np.arange(len(names)))
+    b.set_xticklabels(names, fontsize=8)
+    b.set_ylim(0.3, 1.05)
+    b.set_ylabel("coding strand (+/−), linear probe")
+    b.set_title("Inside one genome", fontsize=10)
+    b.legend(frameon=False, fontsize=7, ncol=2, loc="upper center")
+    b.grid(axis="y", color="0.92", linewidth=0.6)
+    b.set_axisbelow(True)
+    fig.suptitle(title or "What does the embedding fingerprint?", fontsize=11)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path

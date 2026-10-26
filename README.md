@@ -46,6 +46,8 @@ classic.py           pure classic tools: ORF finder (+ shuffle null), GC/skew sc
 oldschool.py         CLI: classic tools on a seq, or the ORF / skew / site test on a held-out genome
 orfjudge.py          pure gene-vs-shadow helpers: codon usage, codon-position profiles, self-training
 together.py          CLI: the shadow test — classic vs neural vs k-gram judges on a held-out genome
+fingerprints.py      pure embedding-audit helpers: k-mer vectors, 1-NN, probes, GC removal, dna_compare report
+neighbors.py         CLI: fingerprint test — embedding vs GC / 4-mer baselines (genome ID, GC, strand)
 bridge/
   schemas.py         Anthropic tools + OpenAI functions
   tools.py           dispatch tool calls to the genome model (classic tools skip the model)
@@ -248,6 +250,23 @@ accuracy 0.87 vs 0.71) and the GC-frame rule is *worse* than chance. The useful
 combination is agreement: from 480 bp the self-trained classic and neural judges agree
 on 93% / 97% of gene/shadow pairs and are then right 94% / 100% of the time.
 `dna_orf_judge` exposes that call (self-trained on the query; needs a contig or genome).
+
+## Fingerprints for DNA (Part 14)
+
+`embed()` is audited, not trusted. `neighbors.py --fingerprint_test` embeds 512 bp windows from
+all 20 genomes (library = first half of each genome, queries = second half) and asks which
+genome a query came from by 1-nearest-neighbour cosine, next to GC-only, 4-mer counts, GC
+removed, and letter-shuffled queries; a linear probe also predicts GC and the coding strand.
+
+```bash
+python neighbors.py --fingerprint_test --ckpt checkpoints/real.pt --fig fingerprints.png
+```
+
+The embedding is ~96% predictable from GC (R² 0.96) and identifies the source genome 16% of
+the time (chance 5%) against 52% for plain 4-mer counts. It does carry coding strand (85% /
+82% in the held-out genomes) but 4-mer counts match or beat it (85% / 90%). `dna_compare`
+returns the embedding cosine next to a shuffled-b control; in seven real pairs the shuffle was
+never farther away, so its verdict is "no_evidence_beyond_composition".
 
 ## Generation evaluation
 

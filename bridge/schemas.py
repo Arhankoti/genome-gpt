@@ -219,6 +219,27 @@ ANTHROPIC_TOOLS = [
     },
     # --- neural + classical, together (Part 13) ---
     {
+        "name": "dna_compare",
+        "description": "Compare two DNA sequences by the model's embedding, next to "
+        "composition-only controls. Returns the embedding cosine, the cosine after "
+        "b's letters are shuffled (same composition, no order), their difference "
+        "(order_gain) with a verdict, the 4-mer-spectrum cosine, and both G+C values. "
+        "In measurements the embedding is ~96% predictable from G+C alone, raw "
+        "cosines between 512-bp genomic windows sit at 0.98-1.00 whether or not the "
+        "windows are related, and a 4-mer count identifies the source genome far "
+        "better than the embedding does. Treat the raw cosine as uninformative; "
+        "'order_beyond_composition' is the only claim this tool can support. Only "
+        "the first block_size bases of each sequence are used.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sequence_a": {"type": "string", "description": "DNA string (ACGTN)"},
+                "sequence_b": {"type": "string", "description": "DNA string (ACGTN)"},
+            },
+            "required": ["sequence_a", "sequence_b"],
+        },
+    },
+    {
         "name": "dna_orf_judge",
         "description": "Gene or shadow? For every pair of long ORFs that overlap on "
         "opposite strands (a real gene often casts a long 'shadow' ORF on its other "
