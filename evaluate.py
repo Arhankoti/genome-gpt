@@ -72,6 +72,28 @@ def markov_variant_llr(probs, k, ids, pos, alt_id):
     return float(ll(alt) - ll(ids))
 
 
+def markov_site_profile(probs, k, ids):
+    """Per-position k-gram anticipation over ids: the k-gram analogue of
+    GenomeModel.site_profile (Part 11). Positions < k have no full context and are
+    NaN. Returns dict of numpy arrays (length len(ids)): entropy_bits and
+    expected_gc (both over A/C/G/T, renormalized; left context only).
+    """
+    ids = np.asarray(ids, dtype=np.int64)
+    n = len(ids)
+    ent = np.full(n, np.nan)
+    egc = np.full(n, np.nan)
+    if n > k:
+        t = np.arange(k, n)
+        ctx = np.zeros(t.size, dtype=np.int64)
+        for j in range(k):
+            ctx = ctx * VOCAB_SIZE + ids[t - k + j]
+        p = probs[ctx][:, :4]
+        p = p / p.sum(axis=1, keepdims=True)
+        ent[k:] = -(p * np.log2(p)).sum(axis=1)
+        egc[k:] = p[:, 1] + p[:, 2]
+    return {"entropy_bits": ent, "expected_gc": egc}
+
+
 def main():
     cfg = Config()
     ap = argparse.ArgumentParser()

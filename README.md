@@ -33,14 +33,15 @@ evaluate.py          Markov-baseline comparison + GC / k-mer checks
 benchmark.py         real-data: neural vs Markov per held-out genome -> table + PNG
 scaling.py           size ladder (fixed data/split/budget) -> val + gap vs params
 dataqc.py            CLI: inspect a corpus -> cleanliness table + similarity heatmap
-inference.py         score / generate / variant_effect(s) / saturation_scan / embed
+inference.py         score / generate / variant_effect(s) / saturation_scan / site_profile / embed
 generation.py        pure stats to judge dreams: kmer fidelity + copy/novelty (numpy)
 viz.py               render scan / sweep / benchmark / scaling / similarity PNGs (matplotlib)
-landscape.py         CLI: scan a seq/FASTA window -> ranked table + landscape PNG
+landscape.py         CLI: scan a window -> landscape PNG; gene view; the reading-frame test
 dream.py             CLI: sweep sampling temperature -> fidelity-vs-novelty table + PNG
 score.py             CLI: score a seq -> plain-English verdict (vs random + a shuffle)
 variants.py          pure variant helpers: codon table, syn/missense/nonsense labels, verdict
 detective.py         CLI: calibrated variant call, or the codon test on a held-out genome
+frames.py            pure reading-frame helpers: phase means, frame template/call, period-3 SNR
 bridge/
   schemas.py         Anthropic tools + OpenAI functions
   tools.py           dispatch tool calls to the genome model
@@ -166,6 +167,31 @@ logP(ref | left context)`, read straight off the logits. It is *not* the same as
 *downstream* bases. Use it for a whole-gene overview, then zoom in on the top hits
 with the precise, centered `variant_effect`. Exposed to the frontier model as the
 `dna_saturation_scan` tool.
+
+### Reading the frame out of a landscape (Part 11)
+
+Inside genes, a landscape isn't noise — it stripes every three bases. `site_profile`
+exposes what the model *expected* at each site before seeing it (expected G+C,
+entropy; left context only), next to the landscape's column mean. The **frame test**
+(`landscape.py --frame_test`) samples held-out gene windows at random offsets and asks
+each signal to call the reading frame with the same caller (`frames.py`: a
+genome-specific template fit on half the genes, tested on the other half; chance = 1/3):
+
+```bash
+python landscape.py --frame_test --genome m_tuberculosis_h37rv --ckpt checkpoints/real.pt \
+    --n_windows 1000 --out frames_mtb.json --no-plot
+python landscape.py --compare frames_mtb.json,frames_hp.json \
+    --labels "M. tb,H. pylori" --fig frame_accuracy.png
+python landscape.py --genome m_tuberculosis_h37rv --start 3148452 --end 3148572 \
+    --ckpt checkpoints/real.pt --out gene_landscape.png        # landscape vs codon positions
+```
+
+From 480 bp of held-out gene, the model's **anticipation alone** calls the frame
+0.99 (*M. tuberculosis*) / 0.95 (*H. pylori*) — matching the classic GC frame plot, which
+reads the actual bases — while an order-5 k-gram's anticipation manages 0.35 / 0.66. Its
+expected G+C per codon position matches the observed 68/50/80% (*M. tb*) to ~2 points on
+both strands. Caveat: on shuffled windows the model still produces a period-3 rhythm
+(random phase) — it imposes a frame, so a periodicity score needs a shuffle null.
 
 ## Generation evaluation
 
@@ -295,7 +321,7 @@ rather than aborting. Set `frontier_model` in `config.py` to a model you can rea
 ```bash
 pip install -r requirements-dev.txt   # adds pytest + ruff on top of runtime deps
 
-pytest tests/          # 218 tests, CPU-only, ~2 s — no checkpoint needed
+pytest tests/          # 238 tests, CPU-only, ~2 s — no checkpoint needed
 ruff check .           # lint
 ruff format .          # format
 ```
