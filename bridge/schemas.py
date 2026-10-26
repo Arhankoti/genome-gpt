@@ -151,6 +151,72 @@ ANTHROPIC_TOOLS = [
             "required": ["reference"],
         },
     },
+    # --- classic, deterministic tools (Part 12): no neural model involved ---
+    {
+        "name": "dna_find_orfs",
+        "description": "Classic open-reading-frame finder (deterministic, no model): "
+        "start codon (ATG/GTG/TTG) through the first in-frame stop, on all six frames. "
+        "Returns counts and the longest ORFs (0-based + strand coordinates, strand, "
+        "length in codons), each with shuffle_p = how often a composition-matched "
+        "shuffle of the same length holds an ORF at least that long. A long ORF is not "
+        "proof of a gene: stop codons are A/T-rich, so GC-rich DNA has long ORFs by "
+        "chance (in a 66% G+C genome a 100-codon cutoff is mostly noise), and a real "
+        "gene's opposite strand often carries a long 'shadow' ORF.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sequence": {"type": "string", "description": "DNA string (ACGTN)"},
+                "min_codons": {
+                    "type": "integer",
+                    "description": "Minimum ORF length in codons (default 100)",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "How many of the longest ORFs to return (default 10)",
+                },
+            },
+            "required": ["sequence"],
+        },
+    },
+    {
+        "name": "dna_gc_scan",
+        "description": "Classic G+C scan (deterministic, no model): overall G+C, a "
+        "sliding-window G+C profile (downsampled, bounded), the most and least GC-rich "
+        "windows, and the positions of the cumulative GC skew sum(G-C) minimum and "
+        "maximum (on a whole circular bacterial chromosome these predict the "
+        "replication origin and terminus; on a short fragment they mean little).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sequence": {"type": "string", "description": "DNA string (ACGTN)"},
+                "window": {"type": "integer", "description": "Window size in bp (default 1000)"},
+            },
+            "required": ["sequence"],
+        },
+    },
+    {
+        "name": "dna_restriction_sites",
+        "description": "Classic restriction map (deterministic, no model): for common "
+        "Type II enzymes (EcoRI, BamHI, HindIII, NotI, ... or a chosen list), the number "
+        "of recognition sites, cut positions, and digest fragment sizes (largest first). "
+        "Lists are capped; non-cutters are listed by name.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sequence": {"type": "string", "description": "DNA string (ACGTN)"},
+                "enzymes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Enzyme names (default: all known)",
+                },
+                "circular": {
+                    "type": "boolean",
+                    "description": "Treat the sequence as circular, e.g. a plasmid (default false)",
+                },
+            },
+            "required": ["sequence"],
+        },
+    },
 ]
 
 # --- OpenAI (Chat Completions `tools`) ---

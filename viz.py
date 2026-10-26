@@ -982,3 +982,163 @@ def render_gene_landscape(scan, expected_gc, codon_pos, out_path="gene_landscape
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
+
+
+# ORF calibration series: (key, label, color, linestyle)
+_ORF_SERIES = (
+    ("precision", "precision (calls that are annotated genes)", "#2a78d6", "-"),
+    ("recall", "recall (annotated genes found)", "#1baf7a", "-"),
+    ("chance_fraction", "chance ORFs in a shuffle, as a fraction of calls", "#eb6834", "--"),
+)
+
+
+def render_orf_calibration(results, labels, out_path="orf_calibration.png", title=None):
+    """ORF finder vs annotation as the minimum ORF length varies (Part 12).
+
+    One panel per genome. x = min ORF length (codons, log scale); y = fraction, for
+    precision, recall and the chance-ORF fraction (ORFs at least that long in a
+    composition-matched shuffle, per call). Vertical guides mark the textbook
+    100-codon rule and the shuffle-calibrated threshold. Lines are direct-labelled.
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If there are no results, or labels don't match.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+        import matplotlib.ticker
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_orf_calibration needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    if not results:
+        raise ValueError("no ORF-test results to plot")
+    if len(labels) != len(results):
+        raise ValueError("need one label per result")
+
+    fig, axes = plt.subplots(
+        1, len(results), figsize=(5.4 * len(results), 4.0), sharey=True, squeeze=False
+    )
+    for ax, res, label in zip(axes[0], results, labels):
+        o = res["orfs"]
+        rows = o.get("curve") or o["thresholds"]
+        xs = [r["min_codons"] for r in rows]
+        for key, _, color, ls in _ORF_SERIES:
+            ys = [min(r[key], 1.0) for r in rows]
+            ax.plot(xs, ys, color=color, linestyle=ls, linewidth=2)
+        ax.axvline(100, color="0.55", linestyle=":", linewidth=1)
+        ax.annotate(
+            "textbook\n100 codons",
+            xy=(100, 1.0),
+            xytext=(3, -2),
+            textcoords="offset points",
+            va="top",
+            fontsize=7,
+            color="0.4",
+        )
+        cal = o.get("calibrated_min_codons")
+        if cal:
+            ax.axvline(cal, color="0.2", linestyle="-", linewidth=0.8)
+            ax.annotate(
+                f"shuffle-calibrated\n{cal} codons",
+                xy=(cal, 0.5),
+                xytext=(3, 0),
+                textcoords="offset points",
+                fontsize=7,
+                color="0.2",
+            )
+        ax.set_xscale("log")
+        ticks = [30, 50, 100, 200, 300, 500, 1000]
+        ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([str(t) for t in ticks])
+        ax.set_xlim(xs[0], xs[-1])
+        ax.set_ylim(0, 1.02)
+        ax.set_xlabel("minimum ORF length (codons)")
+        ax.set_title(f"{label}  (G+C {o['gc']:.0%})", fontsize=10)
+        ax.grid(axis="y", color="0.92", linewidth=0.6)
+        ax.set_axisbelow(True)
+    axes[0][0].set_ylabel("fraction")
+    handles = [
+        plt.Line2D([], [], color=c, linestyle=ls, linewidth=2, label=n)
+        for _, n, c, ls in _ORF_SERIES
+    ]
+    fig.legend(handles=handles, loc="lower center", ncol=2, frameon=False, fontsize=8)
+    fig.suptitle(title or "The textbook ORF finder, against the annotation", fontsize=11)
+    fig.subplots_adjust(bottom=0.25, top=0.87, wspace=0.08)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def render_gc_skew(results, labels, out_path="gc_skew.png", title=None):
+    """Cumulative GC skew sum(G-C) along each genome, with its minimum (the
+    model-free origin guess) and the annotated dnaA gene marked (Part 12).
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If there are no results, or labels don't match.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_gc_skew needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    if not results:
+        raise ValueError("no skew results to plot")
+    if len(labels) != len(results):
+        raise ValueError("need one label per result")
+
+    fig, axes = plt.subplots(1, len(results), figsize=(5.4 * len(results), 3.4), squeeze=False)
+    for ax, res, label in zip(axes[0], results, labels):
+        sk = res["skew"]
+        mb = [p / 1e6 for p in sk["curve_pos"]]
+        ax.plot(mb, [v / 1e3 for v in sk["curve"]], color="#2a78d6", linewidth=2)
+        lo = sk["origin_guess"] / 1e6
+        ax.axvline(lo, color="0.2", linewidth=0.8)
+        ax.annotate(
+            "skew minimum\n(origin guess)",
+            xy=(lo, 1),
+            xycoords=("data", "axes fraction"),
+            xytext=(-4, -4),
+            textcoords="offset points",
+            ha="right",
+            va="top",
+            fontsize=7,
+            color="0.2",
+        )
+        if sk.get("dnaA"):
+            d = sk["dnaA"]["start"] / 1e6
+            ax.axvline(d, color="#eb6834", linestyle="--", linewidth=1.2)
+            ax.annotate(
+                f"dnaA ({sk['origin_to_dnaA_bp'] / 1e3:.1f} kb away)",
+                xy=(d, 0),
+                xycoords=("data", "axes fraction"),
+                xytext=(4 if d < mb[-1] / 2 else -4, 4),
+                textcoords="offset points",
+                ha="left" if d < mb[-1] / 2 else "right",
+                fontsize=7,
+                color="0.3",
+            )
+        ax.set_xlim(0, mb[-1])
+        ax.set_xlabel("genome position (Mb)")
+        ax.set_title(label, fontsize=10)
+        ax.grid(color="0.92", linewidth=0.6)
+        ax.set_axisbelow(True)
+    axes[0][0].set_ylabel("cumulative G − C (thousands)")
+    fig.suptitle(title or "Finding the replication origin with a running count", fontsize=11)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path

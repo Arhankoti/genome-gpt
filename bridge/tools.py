@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from inference import GenomeModel
 
 _MODEL = None
+CLASSIC_TOOLS = ("dna_find_orfs", "dna_gc_scan", "dna_restriction_sites")
 
 
 def get_model():
@@ -18,7 +19,33 @@ def get_model():
     return _MODEL
 
 
+def _classic(name: str, args: dict) -> dict | None:
+    """The deterministic tools (Part 12): pure numpy, so they never load the model."""
+    import classic
+
+    if name == "dna_find_orfs":
+        return classic.orf_report(
+            args["sequence"],
+            min_codons=int(args.get("min_codons", 100)),
+            top_k=int(args.get("top_k", 10)),
+        )
+    if name == "dna_gc_scan":
+        return classic.gc_report(args["sequence"], window=int(args.get("window", 1000)))
+    if name == "dna_restriction_sites":
+        return classic.sites_report(
+            args["sequence"],
+            enzymes=args.get("enzymes"),
+            circular=bool(args.get("circular", False)),
+        )
+    return None
+
+
 def dispatch(name: str, args: dict) -> dict:
+    if name in CLASSIC_TOOLS:
+        try:
+            return _classic(name, args)
+        except ValueError as e:  # e.g. an unknown enzyme name: tell the caller, don't crash
+            return {"error": str(e)}
     m = get_model()
     if name == "dna_score":
         return m.score(args["sequence"])
