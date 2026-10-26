@@ -128,4 +128,9 @@ def dispatch(name: str, args: dict) -> dict:
             min_codons=int(args.get("min_codons", 100)),
             top_k=int(args.get("top_k", 10)),
         )
+    if name == "dna_compare":
+        from fingerprints import similarity_report
+
+        # Embedding similarity next to composition-only controls; scalars only.
+        return similarity_report(m.embed, args["sequence_a"], args["sequence_b"])
     return {"error": f"unknown tool {name}"}

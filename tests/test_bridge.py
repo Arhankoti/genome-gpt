@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 def test_anthropic_tools_structure():
     from bridge.schemas import ANTHROPIC_TOOLS
 
-    assert len(ANTHROPIC_TOOLS) == 12
+    assert len(ANTHROPIC_TOOLS) == 13
     names = {t["name"] for t in ANTHROPIC_TOOLS}
     assert names == {
         "dna_score",
@@ -23,6 +23,7 @@ def test_anthropic_tools_structure():
         "dna_gc_scan",
         "dna_restriction_sites",
         "dna_orf_judge",
+        "dna_compare",
     }
 
 
@@ -190,6 +191,19 @@ def test_dispatch_orf_judge():
     for row in result["pairs"]:
         assert row["classic_pick"] in "+-" and row["neural_pick"] in "+-"
     assert seq not in str(result)
+
+
+def test_dispatch_compare():
+    mock = _make_mock_model()
+    mock.embed.side_effect = lambda s: [1.0, float(len(s)), 0.5, 0.2]
+    with patch("bridge.tools.get_model", return_value=mock):
+        from bridge.tools import dispatch
+
+        result = dispatch("dna_compare", {"sequence_a": "ACGT" * 20, "sequence_b": "AACC" * 20})
+    for k in ("cosine_ab", "cosine_a_shuffled_b", "order_gain", "kmer_cosine", "gc_difference"):
+        assert k in result
+    assert result["gc_difference"] == 0.0
+    assert "ACGT" * 20 not in str(result)
 
 
 def test_dispatch_unknown_tool():
