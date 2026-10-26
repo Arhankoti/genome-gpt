@@ -265,6 +265,28 @@ class GenomeModel:
         }
 
     @torch.no_grad()
+    def base_probs(self, seq):
+        """P(A), P(C), P(G), P(T) at every position from left context only (Part 13).
+
+        The full anticipation behind site_profile's expected_gc: one left-context
+        pass, renormalized over the four real bases. The base at a position is
+        never seen when predicting it.
+
+        Args:
+            seq: DNA string (ACGTN).
+
+        Returns:
+            numpy float64 array of shape (len(seq), 4); row 0 (no left context) is NaN.
+        """
+        ids = _encode(seq, self.device)
+        out = np.full((len(ids), 4), np.nan)
+        if len(ids) < 2:
+            return out
+        rows = self._left_logprobs(ids)[1:]
+        out[1:] = torch.softmax(rows[:, :4], dim=-1).cpu().numpy()
+        return out
+
+    @torch.no_grad()
     def saturation_scan(self, seq, start=0, end=None, top_k=20):
         """Single-site LLR for every single-base substitution over seq[start:end].
 

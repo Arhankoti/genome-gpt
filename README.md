@@ -33,7 +33,7 @@ evaluate.py          Markov-baseline comparison + GC / k-mer checks
 benchmark.py         real-data: neural vs Markov per held-out genome -> table + PNG
 scaling.py           size ladder (fixed data/split/budget) -> val + gap vs params
 dataqc.py            CLI: inspect a corpus -> cleanliness table + similarity heatmap
-inference.py         score / generate / variant_effect(s) / saturation_scan / site_profile / embed
+inference.py         score / generate / variant_effect(s) / saturation_scan / site_profile / base_probs / embed
 generation.py        pure stats to judge dreams: kmer fidelity + copy/novelty (numpy)
 viz.py               render scan / sweep / benchmark / scaling / similarity PNGs (matplotlib)
 landscape.py         CLI: scan a window -> landscape PNG; gene view; the reading-frame test
@@ -44,6 +44,8 @@ detective.py         CLI: calibrated variant call, or the codon test on a held-o
 frames.py            pure reading-frame helpers: phase means, frame template/call, period-3 SNR
 classic.py           pure classic tools: ORF finder (+ shuffle null), GC/skew scan, restriction map
 oldschool.py         CLI: classic tools on a seq, or the ORF / skew / site test on a held-out genome
+orfjudge.py          pure gene-vs-shadow helpers: codon usage, codon-position profiles, self-training
+together.py          CLI: the shadow test — classic vs neural vs k-gram judges on a held-out genome
 bridge/
   schemas.py         Anthropic tools + OpenAI functions
   tools.py           dispatch tool calls to the genome model (classic tools skip the model)
@@ -220,6 +222,33 @@ after calibration is mostly *antisense shadows* of real genes, which a compositi
 null can't catch. The cumulative GC skew minimum lands 0.3 kb from *dnaA* in
 *M. tb* and 26.5 kb (1.6% of the genome) away in *H. pylori*.
 
+## Gene or shadow? Neural + classical, together (Part 13)
+
+Part 12's leftover false ORFs are mostly *antisense shadows*: long ORFs running backwards
+through real genes. `together.py --shadow_test` reads every long ORF in a held-out genome
+from its start codon (60–480 bp) and asks several judges whether it's a gene or a shadow,
+each reduced the same way (`orfjudge.py`): classic codon usage, observed base composition
+by codon position, the GC-frame rule (GC3 − max(GC1, GC2)), and the neural model's /
+k-gram's *anticipation* by codon position (`GenomeModel.base_probs`, left context only).
+Two settings: trained on the annotation (2-fold) and **self-trained** (no annotation:
+similarity to the genome's own ORF centroid, refined over overlapping antisense pairs).
+
+```bash
+python together.py --shadow_test --genome m_tuberculosis_h37rv --min_codons 280 \
+    --ckpt checkpoints/real.pt --out shadows_mtb.json --no-plot
+python together.py --compare shadows_mtb.json,shadows_hp.json --labels "M. tb,H. pylori" \
+    --fig shadow_test.png
+```
+
+In GC-rich *M. tuberculosis* classic codon usage wins at every length (trained AUC
+0.78→0.93) and the neural model doesn't beat the k-gram (0.66→0.79); without labels on
+short windows only the one-line GC-frame rule is above chance. In AT-rich *H. pylori* the
+neural model wins on short windows (60 bp: trained 0.92 vs 0.85; self-trained pair
+accuracy 0.87 vs 0.71) and the GC-frame rule is *worse* than chance. The useful
+combination is agreement: from 480 bp the self-trained classic and neural judges agree
+on 93% / 97% of gene/shadow pairs and are then right 94% / 100% of the time.
+`dna_orf_judge` exposes that call (self-trained on the query; needs a contig or genome).
+
 ## Generation evaluation
 
 The model can dream (`generate`), but is the dream any good? Judge it on **two**
@@ -348,7 +377,7 @@ rather than aborting. Set `frontier_model` in `config.py` to a model you can rea
 ```bash
 pip install -r requirements-dev.txt   # adds pytest + ruff on top of runtime deps
 
-pytest tests/          # 258 tests, CPU-only, ~2 s — no checkpoint needed
+pytest tests/          # 273 tests, CPU-only, ~2 s — no checkpoint needed
 ruff check .           # lint
 ruff format .          # format
 ```

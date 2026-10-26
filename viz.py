@@ -1142,3 +1142,100 @@ def render_gc_skew(results, labels, out_path="gc_skew.png", title=None):
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
+
+
+# shadow-test series: (key, label, color, linestyle) — neural/k-gram/GC-rule colors
+# match the Part 11 frame figure so a signal keeps its color across posts
+_SHADOW_SERIES = (
+    ("neural_phase", "neural anticipation by codon position", "#2a78d6", "-"),
+    ("kgram_phase", "k-gram anticipation by codon position", "#eb6834", "-"),
+    ("codon_usage", "classic codon usage", "#1baf7a", "-"),
+    ("observed_phase", "classic base composition by codon position", "#9467bd", "-"),
+    ("gc_frame_rule", "classic GC-frame rule (no training)", "#eda100", "--"),
+    ("together", "together: codon usage + neural", "#333333", ":"),
+)
+
+
+def render_shadow_test(results, labels, out_path="shadow_test.png", title=None):
+    """Gene vs antisense shadow, vs window length (Part 13).
+
+    Rows: TRAINED (templates from the annotation; AUC genes vs shadows) and
+    SELF-TRAINED (no annotation; pair accuracy over overlapping gene/shadow pairs).
+    Columns: one per genome. 0.5 = chance is marked on every panel.
+
+    Raises:
+        ImportError: If matplotlib is not installed (dev-only dependency).
+        ValueError: If there are no results, or labels don't match.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # headless: no display needed to write a PNG
+        import matplotlib.pyplot as plt
+    except ImportError as e:  # pragma: no cover - exercised only without matplotlib
+        raise ImportError(
+            "render_shadow_test needs matplotlib. Install it with "
+            "`pip install matplotlib` (it is a dev-only, optional dependency)."
+        ) from e
+
+    if not results:
+        raise ValueError("no shadow-test results to plot")
+    if len(labels) != len(results):
+        raise ValueError("need one label per result")
+
+    rows = (
+        ("trained_auc", "trained on the annotation\n(AUC, genes vs shadows)"),
+        ("self_pair_accuracy", "self-trained, no annotation\n(gene wins its overlapping pair)"),
+    )
+    fig, axes = plt.subplots(
+        2,
+        len(results),
+        figsize=(5.2 * len(results), 6.6),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
+    )
+    for c, (res, label) in enumerate(zip(results, labels)):
+        Ls = res["lengths"]
+        for r, (key, ylabel) in enumerate(rows):
+            ax = axes[r][c]
+            for name, _, color, ls in _SHADOW_SERIES:
+                sig = res["signals"].get(name, {})
+                ys = [sig.get(str(L), {}).get(key) for L in Ls]
+                if any(v is None for v in ys):
+                    continue
+                ax.plot(Ls, ys, color=color, linestyle=ls, linewidth=2, marker="o", markersize=4)
+            ax.axhline(0.5, color="gray", linestyle=":", linewidth=1)
+            ax.annotate(
+                "chance",
+                xy=(Ls[-1], 0.5),
+                xytext=(0, -9),
+                textcoords="offset points",
+                ha="right",
+                fontsize=7,
+                color="gray",
+            )
+            ax.set_xscale("log", base=2)
+            ax.set_xticks(Ls)
+            ax.set_xticklabels([str(L) for L in Ls])
+            ax.set_ylim(0.3, 1.02)
+            ax.grid(axis="y", color="0.92", linewidth=0.6)
+            ax.set_axisbelow(True)
+            if c == 0:
+                ax.set_ylabel(ylabel, fontsize=9)
+            if r == 0:
+                ax.set_title(
+                    f"{label}  ({res['n_genes']} genes, {res['n_shadows']} shadows)", fontsize=10
+                )
+            if r == 1:
+                ax.set_xlabel("bases read from the start codon")
+    handles = [
+        plt.Line2D([], [], color=col, linestyle=ls, linewidth=2, marker="o", label=n)
+        for _, n, col, ls in _SHADOW_SERIES
+    ]
+    fig.legend(handles=handles, loc="lower center", ncol=2, frameon=False, fontsize=8)
+    fig.suptitle(title or "Is this ORF a gene, or a gene's shadow?", fontsize=11)
+    fig.subplots_adjust(bottom=0.17, top=0.92, hspace=0.12, wspace=0.08)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
